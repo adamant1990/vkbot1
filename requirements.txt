@@ -1,0 +1,11 @@
+vkbottle>=4.3.0
+SQLAlchemy>=2.0.0
+asyncpg>=0.29.0
+aiosqlite>=0.19.0
+APScheduler>=3.10.0
+httpx>=0.24.0
+python-dotenv>=1.0.0
+loguru>=0.7.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+cachetools>=5.0.0
