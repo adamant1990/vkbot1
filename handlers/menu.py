@@ -1,4 +1,4 @@
-from vkbottle import BaseStateGroup, CtxStorage
+from vkbottle import BaseStateGroup
 from vkbottle.bot import Message
 from keyboards import main_menu_keyboard
 from db import get_session
@@ -8,8 +8,7 @@ from vkbottle import Keyboard, Text, KeyboardButtonColor, API
 from utils.db_utils import get_user_by_vk_id, update_user_rating
 from config import settings
 from sqlalchemy import select, and_
-
-ctx = CtxStorage()
+from storage import ctx
 
 class RegistrationState(BaseStateGroup):
     WAITING_NAME = 1
@@ -370,7 +369,6 @@ async def process_rating(message: Message):
     user_id = message.from_id
     text = message.text.strip()
     
-    # Извлекаем число из текста
     try:
         rating_value = int(text[0])
         if rating_value < 1 or rating_value > 5:
@@ -389,7 +387,6 @@ async def process_rating(message: Message):
         return
     
     async for session in get_session():
-        # Проверяем, не ставил ли уже оценку
         existing = await session.execute(
             select(Rating).where(
                 and_(
@@ -403,7 +400,6 @@ async def process_rating(message: Message):
             ctx.delete(f"rating_state_{user_id}")
             return
         
-        # Сохраняем оценку
         rating = Rating(
             booking_id=trip_id,
             from_user_id=user_id,
@@ -413,7 +409,6 @@ async def process_rating(message: Message):
         session.add(rating)
         await session.commit()
         
-        # Пересчитываем рейтинг
         await update_user_rating(session, target_id)
         
         await message.answer(

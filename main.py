@@ -21,12 +21,14 @@ from handlers.menu import (
 )
 from handlers.profile import profile_handler
 from handlers.trips import (
-    create_trip_handler, process_route, process_datetime,
+    create_trip_handler, process_route, process_calendar_date,
+    process_manual_date, process_time,
     process_seats, process_price, process_comment, process_publish,
     CreateTripState
 )
 from handlers.search import (
-    search_trip_handler, process_search_route, process_search_date,
+    search_trip_handler, process_search_route, process_search_calendar_date,
+    process_search_manual_date,
     process_sort_and_search, handle_search_navigation, handle_search_action,
     SearchState
 )
@@ -138,8 +140,12 @@ async def state_router(message: Message):
         logger.info(f"Processing create state: {create_state}")
         if create_state == CreateTripState.WAITING_ROUTE:
             await process_route(message)
-        elif create_state == CreateTripState.WAITING_DATETIME:
-            await process_datetime(message)
+        elif create_state == CreateTripState.WAITING_DATE:
+            await process_calendar_date(message)
+        elif create_state == CreateTripState.WAITING_MANUAL_DATE:
+            await process_manual_date(message)
+        elif create_state == CreateTripState.WAITING_TIME:
+            await process_time(message)
         elif create_state == CreateTripState.WAITING_SEATS:
             await process_seats(message)
         elif create_state == CreateTripState.WAITING_PRICE:
@@ -157,7 +163,9 @@ async def state_router(message: Message):
         if search_state == SearchState.WAITING_ROUTE:
             await process_search_route(message)
         elif search_state == SearchState.WAITING_DATE:
-            await process_search_date(message)
+            await process_search_calendar_date(message)
+        elif search_state == SearchState.WAITING_MANUAL_DATE:
+            await process_search_manual_date(message)
         elif search_state == SearchState.WAITING_SORT:
             await process_sort_and_search(message)
         return True
@@ -196,6 +204,8 @@ async def main():
         "Пропустить комментарий": process_comment,
         "✅ Подтвердить": process_price,
         "✏️ Своя цена": process_price,
+        "📆 Другая дата": process_calendar_date,
+        "🔙 Отмена": process_calendar_date,
         "✏️ Редактировать профиль": edit_profile_handler,
         "👤 Изменить имя": process_edit_choice,
         "📅 Изменить возраст": process_edit_choice,

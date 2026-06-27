@@ -1,24 +1,25 @@
-from vkbottle import BaseStateGroup, CtxStorage, API
+from vkbottle import BaseStateGroup, API
 from vkbottle.bot import Message
 from keyboards import main_menu_keyboard
 from db import get_session
 from models import User, Trip, TripStatus, Subscription
-from datetime import datetime
+from datetime import datetime, timedelta
 from loguru import logger
 from vkbottle import Keyboard, Text, KeyboardButtonColor
 from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_setting
 from config import settings
 from sqlalchemy import select, and_
-
-ctx = CtxStorage()
+from storage import ctx
 
 class CreateTripState(BaseStateGroup):
     WAITING_ROUTE = 1
-    WAITING_DATETIME = 2
-    WAITING_SEATS = 3
-    WAITING_PRICE = 4
-    WAITING_COMMENT = 5
-    WAITING_PUBLISH = 6
+    WAITING_DATE = 2
+    WAITING_MANUAL_DATE = 3
+    WAITING_TIME = 4
+    WAITING_SEATS = 5
+    WAITING_PRICE = 6
+    WAITING_COMMENT = 7
+    WAITING_PUBLISH = 8
 
 def safe_delete_ctx(key: str):
     """Безопасное удаление ключа из контекста"""
@@ -51,6 +52,60 @@ def parse_route(text: str):
 def round_price(price: int) -> int:
     """Округляет цену до десятков: 324 → 320, 326 → 330"""
     return round(price / 10) * 10
+
+# ============ Календарь ============
+
+def get_next_days():
+    """Возвращает список из 3 ближайших дней"""
+    today = datetime.now()
+    days = []
+    
+    labels = [
+        f"Сегодня ({today.strftime('%d.%m')})",
+        f"Завтра ({(today + timedelta(days=1)).strftime('%d.%m')})",
+        f"Послезавтра ({(today + timedelta(days=2)).strftime('%d.%m')})",
+    ]
+    
+    for i, label in enumerate(labels):
+        day = today + timedelta(days=i)
+        days.append({
+            'date': day.strftime('%d.%m.%Y'),
+            'label': label
+        })
+    
+    return days
+
+def build_calendar_keyboard():
+    """Создаёт клавиатуру с 3 днями + кнопка другой даты"""
+    keyboard = Keyboard(inline=False)
+    days = get_next_days()
+    
+    keyboard.add(Text(days[0]['label']), KeyboardButtonColor.PRIMARY)
+    keyboard.add(Text(days[1]['label']), KeyboardButtonColor.PRIMARY)
+    keyboard.row()
+    
+    keyboard.add(Text(days[2]['label']), KeyboardButtonColor.PRIMARY)
+    keyboard.add(Text("📆 Другая дата"), KeyboardButtonColor.SECONDARY)
+    keyboard.row()
+    
+    keyboard.add(Text("🔙 Отмена"), KeyboardButtonColor.SECONDARY)
+    
+    return keyboard
+
+def parse_calendar_date(text: str):
+    """Пытается извлечь дату из текста кнопки календаря"""
+    try:
+        parts = text.split('(')
+        if len(parts) > 1:
+            date_str = parts[1].replace(')', '').strip()
+            today = datetime.now()
+            parsed = datetime.strptime(f"{date_str}.{today.year}", '%d.%m.%Y')
+            if parsed.date() < today.date():
+                parsed = parsed.replace(year=today.year + 1)
+            return parsed
+    except:
+        pass
+    return None
 
 async def create_trip_handler(message: Message):
     """Начинает создание поездки"""
@@ -92,34 +147,92 @@ async def process_route(message: Message):
     ctx.set(f"trip_from_{user_id}", route_from)
     ctx.set(f"trip_to_{user_id}", route_to)
     
+    keyboard = build_calendar_keyboard()
     await message.answer(
         f"📍 Маршрут: {route_from} → {route_to}\n\n"
-        "📅 Введите дату и время отправления в формате: ДД.ММ.ГГГГ ЧЧ:ММ\n"
-        "Например: 25.12.2024 14:30"
+        "📅 Выберите дату поездки:",
+        keyboard=keyboard.get_json()
     )
-    ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_DATETIME)
+    ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_DATE)
 
-async def process_datetime(message: Message):
-    """Обрабатывает дату и время"""
+async def process_calendar_date(message: Message):
+    """Обрабатывает выбор даты из календаря"""
+    user_id = message.from_id
+    text = message.text.strip()
+    
+    if text == "📆 Другая дата":
+        await message.answer(
+            "📅 Введите дату в формате ДД.ММ.ГГГГ:\n"
+            "Например: 25.12.2024"
+        )
+        ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_MANUAL_DATE)
+        return
+    
+    if text == "🔙 Отмена":
+        safe_delete_ctx(f"create_trip_{user_id}")
+        from handlers.menu import send_main_menu
+        await send_main_menu(message)
+        return
+    
+    selected_date = parse_calendar_date(text)
+    if selected_date:
+        ctx.set(f"trip_date_{user_id}", selected_date)
+        await message.answer(
+            f"✅ Дата: {selected_date.strftime('%d.%m.%Y')}\n\n"
+            "🕐 Введите время отправления в формате ЧЧ:ММ:\n"
+            "Например: 14:30"
+        )
+        ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_TIME)
+    else:
+        await process_manual_date(message)
+
+async def process_manual_date(message: Message):
+    """Обрабатывает ручной ввод даты"""
     user_id = message.from_id
     
     try:
-        dt = datetime.strptime(message.text.strip(), "%d.%m.%Y %H:%M")
+        date = datetime.strptime(message.text.strip(), "%d.%m.%Y")
+        if date.date() < datetime.now().date():
+            await message.answer("❌ Дата не может быть в прошлом")
+            return
+        
+        ctx.set(f"trip_date_{user_id}", date)
+        await message.answer(
+            f"✅ Дата: {date.strftime('%d.%m.%Y')}\n\n"
+            "🕐 Введите время отправления в формате ЧЧ:ММ:\n"
+            "Например: 14:30"
+        )
+        ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_TIME)
+    except ValueError:
+        await message.answer("❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ")
+
+async def process_time(message: Message):
+    """Обрабатывает время после выбора даты"""
+    user_id = message.from_id
+    
+    try:
+        time = datetime.strptime(message.text.strip(), "%H:%M")
+        date = ctx.get(f"trip_date_{user_id}")
+        
+        if not date:
+            await message.answer("❌ Ошибка. Начните создание поездки заново.")
+            safe_delete_ctx(f"create_trip_{user_id}")
+            return
+        
+        dt = date.replace(hour=time.hour, minute=time.minute)
         
         if dt < datetime.now():
             await message.answer("❌ Дата и время не могут быть в прошлом")
             return
         
         ctx.set(f"trip_datetime_{user_id}", dt)
+        safe_delete_ctx(f"trip_date_{user_id}")
         
         await message.answer("💺 Сколько свободных мест? (от 1 до 8)")
         ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_SEATS)
         
     except ValueError:
-        await message.answer(
-            "❌ Неверный формат. Используйте: ДД.ММ.ГГГГ ЧЧ:ММ\n"
-            "Например: 25.12.2024 14:30"
-        )
+        await message.answer("❌ Неверный формат времени. Используйте ЧЧ:ММ")
 
 async def process_seats(message: Message):
     """Обрабатывает количество мест и рассчитывает расстояние"""
@@ -133,7 +246,6 @@ async def process_seats(message: Message):
         
         ctx.set(f"trip_seats_{user_id}", seats)
         
-        # Пытаемся рассчитать расстояние
         route_from = ctx.get(f"trip_from_{user_id}")
         route_to = ctx.get(f"trip_to_{user_id}")
         
@@ -146,19 +258,16 @@ async def process_seats(message: Message):
                 straight_distance = haversine_distance(coords_from, coords_to)
                 logger.info(f"Straight distance: {route_from} -> {route_to} = {straight_distance:.1f} km")
                 
-                # Применяем дорожный коэффициент
                 async for session in get_session():
                     coef_str = await get_setting(session, "road_coefficient", "1.4")
                 coefficient = float(coef_str)
                 distance = straight_distance * coefficient
                 logger.info(f"Road distance (×{coefficient}): {distance:.1f} km")
         
-        # Сохраняем дорожное расстояние
         if distance:
             ctx.set(f"trip_distance_{user_id}", distance)
         
         if distance:
-            # Показываем рекомендованную цену с дорожным расстоянием
             async for session in get_session():
                 tariff_str = await get_setting(session, "price_per_km", "3.5")
             tariff = float(tariff_str)
@@ -176,7 +285,6 @@ async def process_seats(message: Message):
                 keyboard=keyboard.get_json()
             )
         else:
-            # Без расстояния - обычный запрос цены
             await message.answer("💰 Введите цену за одно место (в рублях, 0 - бесплатно):")
         
         ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_PRICE)
@@ -189,12 +297,10 @@ async def process_price(message: Message):
     user_id = message.from_id
     text = message.text.strip()
     
-    # Если нажал "Своя цена"
     if text == "✏️ Своя цена":
         await message.answer("💰 Введите свою цену за место (в рублях):")
         return
     
-    # Если нажал "Подтвердить" и есть рекомендованная цена
     if text == "✅ Подтвердить":
         recommended_price = ctx.get(f"trip_recommended_price_{user_id}")
         if recommended_price:
@@ -215,7 +321,6 @@ async def process_price(message: Message):
             await message.answer("💰 Введите цену за одно место (в рублях, 0 - бесплатно):")
             return
     
-    # Обычный ввод цены числом
     try:
         price = int(text)
         if price < 0:
@@ -305,7 +410,6 @@ async def process_publish(message: Message):
         logger.info(f"Trip created: {trip.id} by user {user_id}" + 
                    (f" (distance: {distance:.0f} km)" if distance else ""))
         
-        # Публикация на стену
         if publish_on_wall:
             try:
                 api = API(token=settings.VK_GROUP_TOKEN)
@@ -341,7 +445,6 @@ async def process_publish(message: Message):
             except Exception as e:
                 logger.error(f"Failed to publish on wall: {type(e).__name__}: {e}")
         
-        # Уведомление подписчикам
         subs_result = await session.execute(
             select(Subscription).where(
                 and_(
@@ -372,7 +475,6 @@ async def process_publish(message: Message):
             if notified_count > 0:
                 logger.info(f"Notified {notified_count} subscribers about trip {trip.id}")
         
-        # Ответ пользователю
         response = (
             f"✅ Поездка успешно создана!\n\n"
             f"📍 Маршрут: {route_from} → {route_to}\n"
@@ -391,7 +493,6 @@ async def process_publish(message: Message):
         
         await message.answer(response, keyboard=main_menu_keyboard())
     
-    # Очищаем все данные
     safe_delete_ctx(f"create_trip_{user_id}")
     safe_delete_ctx(f"trip_from_{user_id}")
     safe_delete_ctx(f"trip_to_{user_id}")
@@ -401,3 +502,4 @@ async def process_publish(message: Message):
     safe_delete_ctx(f"trip_comment_{user_id}")
     safe_delete_ctx(f"trip_distance_{user_id}")
     safe_delete_ctx(f"trip_recommended_price_{user_id}")
+    safe_delete_ctx(f"trip_date_{user_id}")
