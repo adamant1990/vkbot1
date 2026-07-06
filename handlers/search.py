@@ -434,6 +434,8 @@ async def handle_search_action(message: Message):
             trip = await get_trip_by_id(session, trip_id)
             driver = await get_user_by_vk_id(session, trip.driver_id)
             
+            logger.warning(f"БРОНИРОВАНИЕ: user={user_id}, trip={trip_id}, driver_id={trip.driver_id}, driver_found={driver is not None}")
+            
             if not trip or trip.status != TripStatus.active:
                 await message.answer("❌ Поездка недоступна")
                 return
@@ -468,6 +470,7 @@ async def handle_search_action(message: Message):
             await session.commit()
             
             if driver:
+                logger.warning(f"Отправляю уведомление водителю {driver.vk_id}")
                 from handlers.menu import send_notification
                 await send_notification(
                     driver.vk_id,
@@ -477,6 +480,8 @@ async def handle_search_action(message: Message):
                     f"👤 Пассажир: {user.first_name} {user.last_name}\n\n"
                     f"Зайдите в «📋 Мои поездки» → «📩 Входящие заявки» чтобы подтвердить или отклонить."
                 )
+            else:
+                logger.warning(f"ВОДИТЕЛЬ НЕ НАЙДЕН для поездки {trip_id}, driver_id={trip.driver_id}")
             
             safe_delete(f"search_results_{user_id}")
             
@@ -514,4 +519,4 @@ async def handle_search_action(message: Message):
                 "🔔 Вы подписались на уведомления!\n"
                 "Когда появится подходящая поездка, бот сообщит вам.",
                 keyboard=main_menu_keyboard()
-            )
+    )
