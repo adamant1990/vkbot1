@@ -415,6 +415,7 @@ async def handle_search_action(message: Message):
                 
                 await message.answer(
                     f"👤 Водитель: @id{driver.vk_id}({driver.first_name} {driver.last_name})\n"
+                    f"📱 Телефон: {driver.phone or 'не указан'}\n"
                     f"📍 Маршрут: {trip.route_from} → {trip.route_to}\n"
                     f"📅 Дата: {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
                     f"💰 Цена: {trip.price}₽\n"
@@ -467,7 +468,6 @@ async def handle_search_action(message: Message):
             await session.commit()
             
             if driver:
-                # Отправляем уведомление с кнопками Принять/Отклонить
                 try:
                     api = API(token=settings.VK_GROUP_TOKEN)
                     keyboard = Keyboard(inline=True)
@@ -527,4 +527,4 @@ async def handle_search_action(message: Message):
                 "🔔 Вы подписались на уведомления!\n"
                 "Когда появится подходящая поездка, бот сообщит вам.",
                 keyboard=main_menu_keyboard()
-            )
+    )
