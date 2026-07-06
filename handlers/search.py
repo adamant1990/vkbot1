@@ -7,7 +7,7 @@ from sqlalchemy import select, and_
 from loguru import logger
 from datetime import datetime, timedelta
 from vkbottle import Keyboard, Text, KeyboardButtonColor
-from utils.db_utils import get_user_by_vk_id, get_setting
+from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_setting
 from storage import ctx
 
 class SearchState(BaseStateGroup):
@@ -73,12 +73,10 @@ def build_calendar_keyboard():
     keyboard = Keyboard(inline=False)
     days = get_next_days()
     
-    # Первый ряд: Сегодня и Завтра
     keyboard.add(Text(days[0]['label']), KeyboardButtonColor.PRIMARY)
     keyboard.add(Text(days[1]['label']), KeyboardButtonColor.PRIMARY)
     keyboard.row()
     
-    # Второй ряд: Послезавтра и Другая дата
     keyboard.add(Text(days[2]['label']), KeyboardButtonColor.PRIMARY)
     keyboard.add(Text("📆 Другая дата"), KeyboardButtonColor.SECONDARY)
     keyboard.row()
@@ -396,7 +394,7 @@ async def handle_search_action(message: Message):
             from utils.db_utils import get_trip_by_id
             trip = await get_trip_by_id(session, trip_id)
             if trip:
-                driver = await get_user_by_vk_id(session, trip.driver_id)
+                driver = await get_user_by_id(session, trip.driver_id)
                 
                 if driver is None:
                     await message.answer("❌ Водитель не найден")
@@ -432,9 +430,7 @@ async def handle_search_action(message: Message):
             user = await get_user_by_vk_id(session, user_id)
             from utils.db_utils import get_trip_by_id
             trip = await get_trip_by_id(session, trip_id)
-            driver = await get_user_by_vk_id(session, trip.driver_id)
-            
-            logger.warning(f"БРОНИРОВАНИЕ: user={user_id}, trip={trip_id}, driver_id={trip.driver_id}, driver_found={driver is not None}")
+            driver = await get_user_by_id(session, trip.driver_id)
             
             if not trip or trip.status != TripStatus.active:
                 await message.answer("❌ Поездка недоступна")
@@ -470,7 +466,6 @@ async def handle_search_action(message: Message):
             await session.commit()
             
             if driver:
-                logger.warning(f"Отправляю уведомление водителю {driver.vk_id}")
                 from handlers.menu import send_notification
                 await send_notification(
                     driver.vk_id,
@@ -480,8 +475,6 @@ async def handle_search_action(message: Message):
                     f"👤 Пассажир: {user.first_name} {user.last_name}\n\n"
                     f"Зайдите в «📋 Мои поездки» → «📩 Входящие заявки» чтобы подтвердить или отклонить."
                 )
-            else:
-                logger.warning(f"ВОДИТЕЛЬ НЕ НАЙДЕН для поездки {trip_id}, driver_id={trip.driver_id}")
             
             safe_delete(f"search_results_{user_id}")
             
@@ -519,4 +512,4 @@ async def handle_search_action(message: Message):
                 "🔔 Вы подписались на уведомления!\n"
                 "Когда появится подходящая поездка, бот сообщит вам.",
                 keyboard=main_menu_keyboard()
-    )
+            )
