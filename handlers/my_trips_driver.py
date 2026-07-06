@@ -123,7 +123,6 @@ async def perform_delete_trip(session, trip, message, driver):
     )
     bookings = result.scalars().all()
     
-    # Уведомляем каждого пассажира об отмене
     for booking in bookings:
         if booking.status == BookingStatus.accepted:
             passenger = await get_user_by_id(session, booking.passenger_id)
@@ -205,9 +204,22 @@ async def incoming_requests_handler(message: Message):
 
 async def handle_booking_response(message: Message):
     """Обрабатывает решение по заявке (принять/отклонить) и уведомляет пассажира"""
-    parts = message.text.split()
-    action = parts[0]
+    text = message.text.strip()
+    parts = text.split()
+    
+    # Извлекаем booking_id (последнее число)
     booking_id = int(parts[-1])
+    
+    # Определяем действие по тексту
+    if "Принять" in text:
+        action = "Принять"
+    elif "Отклонить" in text:
+        action = "Отклонить"
+    else:
+        logger.warning(f"Неизвестное действие: {text}")
+        return
+    
+    logger.warning(f"HANDLE_BOOKING: action={action}, booking_id={booking_id}")
     
     async for session in get_session():
         booking = await get_booking_by_id(session, booking_id)
@@ -223,7 +235,7 @@ async def handle_booking_response(message: Message):
             await message.answer("❌ Это не ваша поездка")
             return
         
-        if "Принять" in action:
+        if action == "Принять":
             if trip.seats_available <= 0:
                 await message.answer("❌ Нет свободных мест")
                 return
@@ -232,7 +244,6 @@ async def handle_booking_response(message: Message):
             trip.seats_available -= 1
             await session.commit()
             
-            # Уведомляем пассажира
             if passenger:
                 from handlers.menu import send_notification
                 await send_notification(
@@ -248,11 +259,10 @@ async def handle_booking_response(message: Message):
             await message.answer("✅ Заявка принята! Пассажир уведомлен.")
             logger.info(f"Booking {booking_id} accepted")
         
-        elif "Отклонить" in action:
+        elif action == "Отклонить":
             booking.status = BookingStatus.rejected
             await session.commit()
             
-            # Уведомляем пассажира
             if passenger:
                 from handlers.menu import send_notification
                 await send_notification(
