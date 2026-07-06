@@ -5,7 +5,7 @@ from models import Trip, User, Booking, BookingStatus, Subscription
 from sqlalchemy import select, and_
 from datetime import datetime, timezone, timedelta
 from vkbottle import Keyboard, Text, KeyboardButtonColor
-from utils.db_utils import get_user_by_vk_id, get_trip_by_id, get_booking_by_id
+from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_trip_by_id, get_booking_by_id
 from loguru import logger
 
 async def my_bookings_menu_handler(message: Message):
