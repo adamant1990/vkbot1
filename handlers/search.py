@@ -6,9 +6,10 @@ from models import Trip, TripStatus, User, Booking, BookingStatus, Subscription
 from sqlalchemy import select, and_
 from loguru import logger
 from datetime import datetime, timedelta
-from vkbottle import Keyboard, Text, KeyboardButtonColor
+from vkbottle import Keyboard, Text, KeyboardButtonColor, API
 from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_setting
 from storage import ctx
+from config import settings
 
 class SearchState(BaseStateGroup):
     WAITING_ROUTE = 1
@@ -466,21 +467,35 @@ async def handle_search_action(message: Message):
             await session.commit()
             
             if driver:
-                from handlers.menu import send_notification
-                await send_notification(
-                    driver.vk_id,
-                    f"📩 Новое бронирование!\n\n"
-                    f"🚗 Поездка: {trip.route_from} → {trip.route_to}\n"
-                    f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
-                    f"👤 Пассажир: {user.first_name} {user.last_name}\n\n"
-                    f"Зайдите в «📋 Мои поездки» → «📩 Входящие заявки» чтобы подтвердить или отклонить."
-                )
+                # Отправляем уведомление с кнопками Принять/Отклонить
+                try:
+                    api = API(token=settings.VK_GROUP_TOKEN)
+                    keyboard = Keyboard(inline=True)
+                    keyboard.add(Text(f"✅ Принять {booking.id}"), KeyboardButtonColor.POSITIVE)
+                    keyboard.add(Text(f"❌ Отклонить {booking.id}"), KeyboardButtonColor.NEGATIVE)
+                    
+                    await api.messages.send(
+                        peer_ids=str(driver.vk_id),
+                        message=(
+                            f"📩 Новое бронирование!\n\n"
+                            f"🚗 Поездка: {trip.route_from} → {trip.route_to}\n"
+                            f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
+                            f"👤 Пассажир: {user.first_name} {user.last_name}\n"
+                            f"💰 Цена: {trip.price}₽\n\n"
+                            f"Выберите действие:"
+                        ),
+                        keyboard=keyboard.get_json(),
+                        random_id=0
+                    )
+                    logger.info(f"Booking notification with buttons sent to driver {driver.vk_id}")
+                except Exception as e:
+                    logger.error(f"Failed to send booking notification to driver: {e}")
             
             safe_delete(f"search_results_{user_id}")
             
             await message.answer(
                 "✅ Заявка на бронирование отправлена!\n"
-                "Водитель будет уведомлен. Ожидайте подтверждения.",
+                "Водитель получил уведомление с кнопками для подтверждения.",
                 keyboard=main_menu_keyboard()
             )
             logger.info(f"Booking created: trip={trip_id}, passenger={user_id}")
