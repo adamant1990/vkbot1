@@ -460,17 +460,29 @@ async def process_publish(message: Message):
             for sub in subscriptions:
                 subscriber = await get_user_by_id(session, sub.user_id)
                 if subscriber and subscriber.vk_id != user_id:
-                    from handlers.menu import send_notification
-                    await send_notification(
-                        subscriber.vk_id,
-                        f"🔔 Появилась поездка по вашему маршруту!\n\n"
-                        f"🚗 {route_from} → {route_to}\n"
-                        f"📅 {departure_time.strftime('%d.%m.%Y %H:%M')}\n"
-                        f"💰 {price}₽\n"
-                        f"💺 Мест: {seats}\n\n"
-                        f"Зайдите в бот и нажмите «🔍 Найти поездку» чтобы забронировать!"
-                    )
-                    notified_count += 1
+                    try:
+                        api = API(token=settings.VK_GROUP_TOKEN)
+                        keyboard = Keyboard(inline=True)
+                        keyboard.add(Text(f"💬 Обсудить {trip.id}"), KeyboardButtonColor.PRIMARY)
+                        keyboard.add(Text(f"✅ Бронировать {trip.id}"), KeyboardButtonColor.POSITIVE)
+                        
+                        await api.messages.send(
+                            peer_ids=str(subscriber.vk_id),
+                            message=(
+                                f"🔔 Появилась поездка по вашему маршруту!\n\n"
+                                f"🚗 {route_from} → {route_to}\n"
+                                f"📅 {departure_time.strftime('%d.%m.%Y %H:%M')}\n"
+                                f"💰 {price}₽\n"
+                                f"💺 Мест: {seats}\n\n"
+                                f"Выберите действие:"
+                            ),
+                            keyboard=keyboard.get_json(),
+                            random_id=0
+                        )
+                        notified_count += 1
+                        logger.info(f"Subscriber notified with buttons: {subscriber.vk_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to notify subscriber {subscriber.vk_id}: {e}")
             
             if notified_count > 0:
                 logger.info(f"Notified {notified_count} subscribers about trip {trip.id}")
