@@ -9,7 +9,7 @@ from models import Base
 from loguru import logger
 
 # Отключаем DEBUG логи
-logging.getLogger("vkbottle.dispatch").setLevel(logging.DEBUG)
+logging.getLogger("vkbottle.dispatch").setLevel(logging.WARNING)
 logging.getLogger("vkbottle.polling").setLevel(logging.INFO)
 
 # Импорты обработчиков
@@ -269,38 +269,38 @@ async def main():
             return
         
         # Управление пользователями (админ)
-        if "🚫 Забанить" in text or "✅ Разбанить" in text:
+        if "Забанить" in text or "Разбанить" in text:
             await ban_user_handler(message)
             return
-        if "⭐ Рейтинг" in text:
+        if "Рейтинг" in text and "⭐" in text:
             await change_rating_handler(message)
             return
-        if "🔄 Сбросить" in text:
+        if "Сбросить" in text:
             await reset_rating_handler(message)
             return
         
         # Действия поиска
-        if "💬 Обсудить" in text or "✅ Бронировать" in text:
+        if "Обсудить" in text or "Бронировать" in text:
             logger.info("→ handle_search_action")
             await handle_search_action(message)
             return
         
         # Действия водителя
-        if "🗑 Удалить" in text:
+        if "Удалить" in text and "Да" not in text:
             await delete_trip_handler(message)
             return
-        if "✅ Да, удалить" in text:
+        if "Да, удалить" in text:
             await confirm_delete_trip(message)
             return
-        if "✅ Принять" in text or "❌ Отклонить" in text:
+        if "Принять" in text or "Отклонить" in text:
             await handle_booking_response(message)
             return
         
         # Действия пассажира
-        if "❌ Отменить" in text:
+        if "Отменить" in text:
             await cancel_booking_handler(message)
             return
-        if "🔕 Отписаться" in text:
+        if "Отписаться" in text:
             await unsubscribe_handler(message)
             return
         
