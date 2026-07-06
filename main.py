@@ -9,7 +9,7 @@ from models import Base
 from loguru import logger
 
 # Отключаем DEBUG логи
-logging.getLogger("vkbottle.dispatch").setLevel(logging.WARNING)
+logging.getLogger("vkbottle.dispatch").setLevel(logging.DEBUG)
 logging.getLogger("vkbottle.polling").setLevel(logging.INFO)
 
 # Импорты обработчиков
