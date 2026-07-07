@@ -215,11 +215,11 @@ async def main():
         "3⭐": process_rating,
         "4⭐": process_rating,
         "5⭐": process_rating,
-        "📋 Мои поездки": my_trips_menu_handler,
+        "🚗 ЛК Водителя": my_trips_menu_handler,
         "🚗 Активные поездки": active_trips_handler,
         "📩 Входящие заявки": incoming_requests_handler,
         "❌ Нет": send_main_menu,
-        "📌 Мои бронирования и подписки": my_bookings_menu_handler,
+        "🧑 ЛК Пассажира": my_bookings_menu_handler,
         "📌 Мои бронирования": my_bookings_handler,
         "🔔 Активные подписки": subscriptions_handler,
         "🔐 Админ-панель": admin_handler,
@@ -246,9 +246,6 @@ async def main():
         text = message.text.strip()
         
         logger.info(f"CATCH_ALL: '{text}' from {user_id}")
-        
-        # ОТЛАДКА
-        logger.warning(f"DEBUG: text='{text}', Принять={'Принять' in text}, Отклонить={'Отклонить' in text}, Отменить={'Отменить' in text}")
         
         # ДИАГНОСТИКА
         if text == "!debug":
@@ -296,13 +293,11 @@ async def main():
             await confirm_delete_trip(message)
             return
         if "Принять" in text or "Отклонить" in text:
-            logger.warning(f"ВЫЗЫВАЮ handle_booking_response для: {text}")
             await handle_booking_response(message)
             return
         
         # Действия пассажира
         if "Отменить" in text:
-            logger.warning(f"ВЫЗЫВАЮ cancel_booking_handler для: {text}")
             await cancel_booking_handler(message)
             return
         if "Отписаться" in text:
