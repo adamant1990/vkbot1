@@ -3,15 +3,12 @@ from vkbottle import Keyboard, Text, KeyboardButtonColor
 def main_menu_keyboard():
     keyboard = Keyboard(inline=False)
     keyboard.add(Text("🔍 Найти поездку"), KeyboardButtonColor.PRIMARY)
-    keyboard.row()
     keyboard.add(Text("➕ Создать поездку"), KeyboardButtonColor.PRIMARY)
     keyboard.row()
     keyboard.add(Text("🚗 ЛК Водителя"), KeyboardButtonColor.PRIMARY)
-    keyboard.row()
     keyboard.add(Text("🧑 ЛК Пассажира"), KeyboardButtonColor.PRIMARY)
     keyboard.row()
     keyboard.add(Text("👤 Профиль"), KeyboardButtonColor.SECONDARY)
-    keyboard.row()
     keyboard.add(Text("🛡️ Техподдержка"), KeyboardButtonColor.SECONDARY)
     return keyboard.get_json()
 
