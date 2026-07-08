@@ -1,4 +1,3 @@
-import multiprocessing
 import asyncio
 import logging
 from vkbottle import Bot
@@ -53,16 +52,23 @@ from handlers.admin import (
     reset_rating_handler
 )
 
-def start_scheduler():
-    from scheduler_process import scheduler_main
-    asyncio.run(scheduler_main())
-
 def safe_delete_ctx(key: str):
     """Безопасное удаление ключа из контекста"""
     try:
         ctx.delete(key)
     except KeyError:
         pass
+
+async def run_scheduler():
+    """Запускает планировщик как фоновую asyncio-задачу"""
+    from scheduler_process import complete_trips_and_request_ratings
+    logger.info("Планировщик запущен (фоновая задача)")
+    while True:
+        await asyncio.sleep(1800)  # 30 минут
+        try:
+            await complete_trips_and_request_ratings()
+        except Exception as e:
+            logger.error(f"Ошибка планировщика: {e}")
 
 async def state_router(message: Message):
     """Маршрутизирует сообщения в зависимости от активного состояния"""
@@ -313,16 +319,13 @@ async def main():
         if not handled:
             await send_main_menu(message)
 
-    # Запуск планировщика
-    scheduler_proc = multiprocessing.Process(target=start_scheduler)
-    scheduler_proc.start()
+    # Запуск планировщика как фоновой задачи
+    asyncio.create_task(run_scheduler())
 
     try:
         logger.info("Бот запущен")
         await bot.run_polling()
     finally:
-        scheduler_proc.terminate()
-        scheduler_proc.join()
         logger.info("Бот остановлен")
 
 if __name__ == "__main__":
