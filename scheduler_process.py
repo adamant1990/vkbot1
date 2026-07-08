@@ -1,7 +1,5 @@
-import asyncio
 import datetime
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select, update, and_
+from sqlalchemy import select, and_
 from db import async_session_maker
 from models import Trip, TripStatus, Booking, BookingStatus, User
 from loguru import logger
@@ -36,7 +34,6 @@ async def complete_trips_and_request_ratings():
         api = API(token=settings.VK_GROUP_TOKEN)
         
         for trip in trips_to_complete:
-            # Меняем статус поездки
             trip.status = TripStatus.completed
             logger.info(f"Trip {trip.id} marked as completed")
             
@@ -60,7 +57,6 @@ async def complete_trips_and_request_ratings():
                     passenger = await session.get(User, booking.passenger_id)
                     if passenger:
                         try:
-                            # Импортируем функцию отправки запроса
                             from handlers.menu import send_rating_request
                             await send_rating_request(
                                 user_id=driver.vk_id,
@@ -90,23 +86,3 @@ async def complete_trips_and_request_ratings():
         
         await session.commit()
         logger.info(f"Scheduler: completed {len(trips_to_complete)} trips")
-
-async def scheduler_main():
-    """Запускает планировщик"""
-    logger.info("Scheduler started")
-    scheduler = AsyncIOScheduler()
-    
-    # Запускаем проверку каждые 30 минут
-    scheduler.add_job(complete_trips_and_request_ratings, 'interval', minutes=30)
-    scheduler.start()
-    
-    try:
-        # Держим процесс alive
-        while True:
-            await asyncio.sleep(3600)
-    except KeyboardInterrupt:
-        scheduler.shutdown()
-        logger.info("Scheduler stopped")
-
-if __name__ == "__main__":
-    asyncio.run(scheduler_main())
