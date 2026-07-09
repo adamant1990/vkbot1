@@ -542,4 +542,43 @@ async def process_new_coefficient(message: Message):
     async for session in get_session():
         await set_setting(session, "road_coefficient", str(new_coef))
         
-        k
+        keyboard = Keyboard(inline=False)
+        keyboard.add(Text("🔙 К настройкам"), KeyboardButtonColor.SECONDARY)
+        
+        await message.answer(
+            f"✅ Дорожный коэффициент изменён на {new_coef}",
+            keyboard=keyboard.get_json()
+        )
+    
+    await safe_ctx_delete(f"admin_change_coefficient_{user_id}")
+
+async def process_new_angle(message: Message):
+    """Сохраняет новый максимальный угол"""
+    user_id = message.from_id
+    
+    if message.text == "🔙 В админ-панель":
+        await safe_ctx_delete(f"admin_change_angle_{user_id}")
+        await price_settings_handler(message)
+        return
+    
+    try:
+        new_angle = int(message.text.strip())
+        if new_angle < 20 or new_angle > 180:
+            await message.answer("❌ Угол должен быть от 20 до 180")
+            return
+    except ValueError:
+        await message.answer("❌ Введите целое число (например: 110)")
+        return
+    
+    async for session in get_session():
+        await set_setting(session, "max_angle", str(new_angle))
+        
+        keyboard = Keyboard(inline=False)
+        keyboard.add(Text("🔙 К настройкам"), KeyboardButtonColor.SECONDARY)
+        
+        await message.answer(
+            f"✅ Максимальный угол изменён на {new_angle}°",
+            keyboard=keyboard.get_json()
+        )
+    
+    await safe_ctx_delete(f"admin_change_angle_{user_id}")
