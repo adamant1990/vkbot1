@@ -1,19 +1,12 @@
-"""Простое хранилище состояний вместо CtxStorage"""
+"""Хранилище состояний - один словарь на весь процесс"""
 
-class SimpleStorage:
-    def __init__(self):
-        self._data = {}
-    
-    def get(self, key, default=None):
-        return self._data.get(key, default)
-    
-    def set(self, key, value):
-        self._data[key] = value
-    
-    def delete(self, key):
-        try:
-            del self._data[key]
-        except KeyError:
-            pass
+_data = {}
 
-ctx = SimpleStorage()
+def get(key, default=None):
+    return _data.get(key, default)
+
+def set(key, value):
+    _data[key] = value
+
+def delete(key):
+    _data.pop(key, None)
