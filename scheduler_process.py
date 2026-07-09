@@ -73,7 +73,7 @@ async def complete_trips_and_request_ratings():
                             from handlers.menu import send_rating_request
                             await send_rating_request(
                                 user_id=driver.vk_id,
-                                trip_id=trip.id,
+                                trip_id=booking.id,
                                 target_id=passenger.id,
                                 target_name=f"{passenger.first_name} {passenger.last_name}"
                             )
@@ -88,7 +88,7 @@ async def complete_trips_and_request_ratings():
                         from handlers.menu import send_rating_request
                         await send_rating_request(
                             user_id=passenger.vk_id,
-                            trip_id=trip.id,
+                            trip_id=booking.id,
                             target_id=driver.id if driver else None,
                             target_name=f"{driver.first_name} {driver.last_name}" if driver else "водитель"
                         )
