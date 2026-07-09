@@ -16,8 +16,7 @@ from handlers.menu import (
     start_handler, send_main_menu, ctx, RegistrationState, EditProfileState, RatingState,
     process_name, process_age, process_gender, process_phone,
     edit_profile_handler, process_edit_choice, process_edit_name,
-    process_edit_age, process_edit_phone, process_rating,
-    check_pending_ratings
+    process_edit_age, process_edit_phone, process_rating
 )
 from handlers.profile import profile_handler
 from handlers.trips import (
@@ -240,10 +239,6 @@ async def main():
         
         logger.info(f"CATCH_ALL: '{text}' from {user_id}")
         
-        # Проверка ожидающих оценок (самое первое!)
-        if await check_pending_ratings(user_id):
-            return
-        
         if text == "!debug":
             user = None
             async for session in get_session():
@@ -256,13 +251,6 @@ async def main():
             info += f"👤 Зарегистрирован: {user is not None}"
             if user:
                 info += f"\n📝 Имя: {user.first_name} {user.last_name}"
-            await message.answer(info)
-            return
-        
-        if text == "!ctx":
-            info = f"rating_trip={ctx.get(f'rating_trip_{user_id}')}\n"
-            info += f"rating_target={ctx.get(f'rating_target_{user_id}')}\n"
-            info += f"rating_state={ctx.get(f'rating_state_{user_id}')}"
             await message.answer(info)
             return
         
