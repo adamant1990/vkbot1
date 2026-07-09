@@ -16,7 +16,12 @@ async def complete_trips_and_request_ratings():
         
         # === Очистка старых подписок ===
         old_subs_result = await session.execute(
-            select(Subscription).where(Subscription.date < now)
+            select(Subscription).where(
+                and_(
+                    Subscription.date.isnot(None),
+                    Subscription.date < now
+                )
+            )
         )
         old_subs = old_subs_result.scalars().all()
         if old_subs:
@@ -63,7 +68,6 @@ async def complete_trips_and_request_ratings():
             driver = await session.get(User, trip.driver_id)
             
             if driver:
-                # Отправляем запрос на оценку водителю
                 for booking in accepted_bookings:
                     passenger = await session.get(User, booking.passenger_id)
                     if passenger:
@@ -79,7 +83,6 @@ async def complete_trips_and_request_ratings():
                         except Exception as e:
                             logger.error(f"Failed to send rating request to driver: {e}")
             
-            # Отправляем запрос на оценку каждому пассажиру
             for booking in accepted_bookings:
                 passenger = await session.get(User, booking.passenger_id)
                 if passenger:
