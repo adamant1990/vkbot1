@@ -34,6 +34,8 @@ class RedisStorage:
             pass
         # Если строка — пробуем преобразовать
         if isinstance(value, str):
+            if value == "null":
+                return None
             if value.isdigit():
                 return int(value)
             if value.replace('.', '', 1).replace('-', '', 1).isdigit():
@@ -56,6 +58,8 @@ class RedisStorage:
             value = str(value)
         elif isinstance(value, datetime):
             value = value.isoformat()
+        elif value is None:
+            value = "null"
         await r.set(self._make_key(key), value, ex=expire)
     
     async def delete(self, key: str):
