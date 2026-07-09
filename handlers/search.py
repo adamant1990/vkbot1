@@ -529,4 +529,17 @@ async def handle_search_action(message: Message):
             user = await get_user_by_vk_id(session, user_id)
             
             subscription = Subscription(
-       
+                user_id=user.id,
+                route_from=route_from,
+                route_to=route_to,
+                date=search_date
+            )
+            session.add(subscription)
+            await session.commit()
+            
+            await message.answer(
+                "✅ Вы подписались на уведомления!\n"
+                "Когда появится подходящая поездка, вы получите уведомление.",
+                keyboard=main_menu_keyboard()
+            )
+            logger.info(f"Subscription created: user={user_id}, {route_from} → {route_to}")
