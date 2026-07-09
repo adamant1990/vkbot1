@@ -21,11 +21,11 @@ class CreateTripState(BaseStateGroup):
     WAITING_COMMENT = 7
     WAITING_PUBLISH = 8
 
-def safe_delete_ctx(key: str):
+async def safe_delete_ctx(key: str):
     """Безопасное удаление ключа из контекста"""
     try:
-        ctx.delete(key)
-    except KeyError:
+        await ctx.delete(key)
+    except Exception:
         pass
 
 def parse_route(text: str):
@@ -135,7 +135,7 @@ async def create_trip_handler(message: Message):
         "• Город1-Город2 (например: Уфа-Туймазы)\n"
         "• Город1 Город2 (например: Уфа Туймазы)"
     )
-    ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_ROUTE)
+    await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_ROUTE)
 
 async def process_route(message: Message):
     """Обрабатывает введенный маршрут"""
@@ -151,8 +151,8 @@ async def process_route(message: Message):
         )
         return
     
-    ctx.set(f"trip_from_{user_id}", route_from)
-    ctx.set(f"trip_to_{user_id}", route_to)
+    await ctx.set(f"trip_from_{user_id}", route_from)
+    await ctx.set(f"trip_to_{user_id}", route_to)
     
     keyboard = build_calendar_keyboard()
     await message.answer(
@@ -160,7 +160,7 @@ async def process_route(message: Message):
         "📅 Выберите дату поездки:",
         keyboard=keyboard.get_json()
     )
-    ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_DATE)
+    await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_DATE)
 
 async def process_calendar_date(message: Message):
     """Обрабатывает выбор даты из календаря"""
@@ -172,24 +172,24 @@ async def process_calendar_date(message: Message):
             "📅 Введите дату в формате ДД.ММ.ГГГГ:\n"
             "Например: 25.12.2024"
         )
-        ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_MANUAL_DATE)
+        await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_MANUAL_DATE)
         return
     
     if text == "🔙 Отмена":
-        safe_delete_ctx(f"create_trip_{user_id}")
+        await safe_delete_ctx(f"create_trip_{user_id}")
         from handlers.menu import send_main_menu
         await send_main_menu(message)
         return
     
     selected_date = parse_calendar_date(text)
     if selected_date:
-        ctx.set(f"trip_date_{user_id}", selected_date)
+        await ctx.set(f"trip_date_{user_id}", selected_date)
         await message.answer(
             f"✅ Дата: {selected_date.strftime('%d.%m.%Y')}\n\n"
             "🕐 Введите время отправления в формате ЧЧ:ММ:\n"
             "Например: 14:30"
         )
-        ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_TIME)
+        await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_TIME)
     else:
         await process_manual_date(message)
 
@@ -203,13 +203,13 @@ async def process_manual_date(message: Message):
             await message.answer("❌ Дата не может быть в прошлом")
             return
         
-        ctx.set(f"trip_date_{user_id}", date)
+        await ctx.set(f"trip_date_{user_id}", date)
         await message.answer(
             f"✅ Дата: {date.strftime('%d.%m.%Y')}\n\n"
             "🕐 Введите время отправления в формате ЧЧ:ММ:\n"
             "Например: 14:30"
         )
-        ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_TIME)
+        await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_TIME)
     except ValueError:
         await message.answer("❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ")
 
@@ -219,11 +219,11 @@ async def process_time(message: Message):
     
     try:
         time = datetime.strptime(message.text.strip(), "%H:%M")
-        date = ctx.get(f"trip_date_{user_id}")
+        date = await ctx.get(f"trip_date_{user_id}")
         
         if not date:
             await message.answer("❌ Ошибка. Начните создание поездки заново.")
-            safe_delete_ctx(f"create_trip_{user_id}")
+            await safe_delete_ctx(f"create_trip_{user_id}")
             return
         
         dt = date.replace(hour=time.hour, minute=time.minute)
@@ -232,11 +232,11 @@ async def process_time(message: Message):
             await message.answer("❌ Дата и время не могут быть в прошлом")
             return
         
-        ctx.set(f"trip_datetime_{user_id}", dt)
-        safe_delete_ctx(f"trip_date_{user_id}")
+        await ctx.set(f"trip_datetime_{user_id}", dt)
+        await safe_delete_ctx(f"trip_date_{user_id}")
         
         await message.answer("💺 Сколько свободных мест? (от 1 до 8)")
-        ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_SEATS)
+        await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_SEATS)
         
     except ValueError:
         await message.answer("❌ Неверный формат времени. Используйте ЧЧ:ММ")
@@ -251,10 +251,10 @@ async def process_seats(message: Message):
             await message.answer("❌ Количество мест должно быть от 1 до 8")
             return
         
-        ctx.set(f"trip_seats_{user_id}", seats)
+        await ctx.set(f"trip_seats_{user_id}", seats)
         
-        route_from = ctx.get(f"trip_from_{user_id}")
-        route_to = ctx.get(f"trip_to_{user_id}")
+        route_from = await ctx.get(f"trip_from_{user_id}")
+        route_to = await ctx.get(f"trip_to_{user_id}")
         
         distance = None
         if settings.YANDEX_API_KEY and route_from and route_to:
@@ -272,14 +272,14 @@ async def process_seats(message: Message):
                 logger.info(f"Road distance (×{coefficient}): {distance:.1f} km")
         
         if distance:
-            ctx.set(f"trip_distance_{user_id}", distance)
+            await ctx.set(f"trip_distance_{user_id}", distance)
         
         if distance:
             async for session in get_session():
                 tariff_str = await get_setting(session, "price_per_km", "3.5")
             tariff = float(tariff_str)
             recommended_price = round_price(round(distance * tariff))
-            ctx.set(f"trip_recommended_price_{user_id}", recommended_price)
+            await ctx.set(f"trip_recommended_price_{user_id}", recommended_price)
             
             keyboard = Keyboard(inline=True)
             keyboard.add(Text("✅ Подтвердить"), KeyboardButtonColor.POSITIVE)
@@ -294,7 +294,7 @@ async def process_seats(message: Message):
         else:
             await message.answer("💰 Введите цену за одно место (в рублях, 0 - бесплатно):")
         
-        ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_PRICE)
+        await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_PRICE)
         
     except ValueError:
         await message.answer("❌ Введите число от 1 до 8")
@@ -309,10 +309,10 @@ async def process_price(message: Message):
         return
     
     if text == "✅ Подтвердить":
-        recommended_price = ctx.get(f"trip_recommended_price_{user_id}")
+        recommended_price = await ctx.get(f"trip_recommended_price_{user_id}")
         if recommended_price:
             price = recommended_price
-            ctx.set(f"trip_price_{user_id}", price)
+            await ctx.set(f"trip_price_{user_id}", price)
             
             keyboard = Keyboard(inline=True)
             keyboard.add(Text("Пропустить комментарий"), KeyboardButtonColor.SECONDARY)
@@ -322,7 +322,7 @@ async def process_price(message: Message):
                 "💬 Добавьте комментарий к поездке (или нажмите 'Пропустить комментарий'):",
                 keyboard=keyboard.get_json()
             )
-            ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_COMMENT)
+            await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_COMMENT)
             return
         else:
             await message.answer("💰 Введите цену за одно место (в рублях, 0 - бесплатно):")
@@ -334,7 +334,7 @@ async def process_price(message: Message):
             await message.answer("❌ Цена не может быть отрицательной")
             return
         
-        ctx.set(f"trip_price_{user_id}", price)
+        await ctx.set(f"trip_price_{user_id}", price)
         
         keyboard = Keyboard(inline=True)
         keyboard.add(Text("Пропустить комментарий"), KeyboardButtonColor.SECONDARY)
@@ -343,7 +343,7 @@ async def process_price(message: Message):
             "💬 Добавьте комментарий к поездке (или нажмите 'Пропустить комментарий'):",
             keyboard=keyboard.get_json()
         )
-        ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_COMMENT)
+        await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_COMMENT)
         
     except ValueError:
         await message.answer("❌ Введите целое число (0 - бесплатно)")
@@ -357,7 +357,7 @@ async def process_comment(message: Message):
     else:
         comment = message.text.strip()
     
-    ctx.set(f"trip_comment_{user_id}", comment)
+    await ctx.set(f"trip_comment_{user_id}", comment)
     
     keyboard = Keyboard(inline=True)
     keyboard.add(Text("Да, на стену"), KeyboardButtonColor.POSITIVE)
@@ -367,7 +367,7 @@ async def process_comment(message: Message):
         "📢 Опубликовать поездку на стене группы?",
         keyboard=keyboard.get_json()
     )
-    ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_PUBLISH)
+    await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_PUBLISH)
 
 async def process_publish(message: Message):
     """Завершает создание поездки, публикует на стену и уведомляет подписчиков"""
@@ -375,17 +375,17 @@ async def process_publish(message: Message):
     
     publish_on_wall = message.text == "Да, на стену"
     
-    route_from = ctx.get(f"trip_from_{user_id}")
-    route_to = ctx.get(f"trip_to_{user_id}")
-    departure_time = ctx.get(f"trip_datetime_{user_id}")
-    seats = ctx.get(f"trip_seats_{user_id}")
-    price = ctx.get(f"trip_price_{user_id}")
-    comment = ctx.get(f"trip_comment_{user_id}")
-    distance = ctx.get(f"trip_distance_{user_id}")
+    route_from = await ctx.get(f"trip_from_{user_id}")
+    route_to = await ctx.get(f"trip_to_{user_id}")
+    departure_time = await ctx.get(f"trip_datetime_{user_id}")
+    seats = await ctx.get(f"trip_seats_{user_id}")
+    price = await ctx.get(f"trip_price_{user_id}")
+    comment = await ctx.get(f"trip_comment_{user_id}")
+    distance = await ctx.get(f"trip_distance_{user_id}")
     
     if not all([route_from, route_to, departure_time, seats is not None, price is not None]):
         await message.answer("❌ Произошла ошибка. Начните создание поездки заново.")
-        safe_delete_ctx(f"create_trip_{user_id}")
+        await safe_delete_ctx(f"create_trip_{user_id}")
         return
     
     wall_published = False
@@ -505,13 +505,13 @@ async def process_publish(message: Message):
         
         await message.answer(response, keyboard=main_menu_keyboard())
     
-    safe_delete_ctx(f"create_trip_{user_id}")
-    safe_delete_ctx(f"trip_from_{user_id}")
-    safe_delete_ctx(f"trip_to_{user_id}")
-    safe_delete_ctx(f"trip_datetime_{user_id}")
-    safe_delete_ctx(f"trip_seats_{user_id}")
-    safe_delete_ctx(f"trip_price_{user_id}")
-    safe_delete_ctx(f"trip_comment_{user_id}")
-    safe_delete_ctx(f"trip_distance_{user_id}")
-    safe_delete_ctx(f"trip_recommended_price_{user_id}")
-    safe_delete_ctx(f"trip_date_{user_id}")
+    await safe_delete_ctx(f"create_trip_{user_id}")
+    await safe_delete_ctx(f"trip_from_{user_id}")
+    await safe_delete_ctx(f"trip_to_{user_id}")
+    await safe_delete_ctx(f"trip_datetime_{user_id}")
+    await safe_delete_ctx(f"trip_seats_{user_id}")
+    await safe_delete_ctx(f"trip_price_{user_id}")
+    await safe_delete_ctx(f"trip_comment_{user_id}")
+    await safe_delete_ctx(f"trip_distance_{user_id}")
+    await safe_delete_ctx(f"trip_recommended_price_{user_id}")
+    await safe_delete_ctx(f"trip_date_{user_id}")
