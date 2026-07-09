@@ -3,7 +3,7 @@ import logging
 from vkbottle import Bot
 from vkbottle.bot import Message
 from config import settings
-from db import engine, get_session
+from db import engine, get_session, get_redis, close_db, close_redis
 from models import Base
 from loguru import logger
 
@@ -53,60 +53,62 @@ from handlers.admin import (
     reset_rating_handler
 )
 
-def safe_delete_ctx(key: str):
-    """Безопасное удаление ключа из контекста"""
+async def safe_delete_ctx(key: str):
+    """Безопасное удаление ключа из контекста (Redis)"""
     try:
-        ctx.delete(key)
-    except KeyError:
+        await ctx.delete(key)
+    except Exception:
         pass
 
 async def run_scheduler():
-    """Запускает планировщик как фоновую asyncio-задачу"""
+    """Запускает планировщик как фоновую asyncio-задачу с защитой от падений"""
     from scheduler_process import complete_trips_and_request_ratings
     logger.info("Планировщик запущен (фоновая задача)")
     while True:
-        await asyncio.sleep(1800)
+        await asyncio.sleep(1800)  # 30 минут
         try:
             await complete_trips_and_request_ratings()
         except Exception as e:
             logger.error(f"Ошибка планировщика: {e}")
+            # Ждём 5 минут перед повторной попыткой после ошибки
+            await asyncio.sleep(300)
 
 async def state_router(message: Message):
     """Маршрутизирует сообщения в зависимости от активного состояния"""
     user_id = message.from_id
     
-    if ctx.get(f"admin_users_search_input_{user_id}"):
+    if await ctx.get(f"admin_users_search_input_{user_id}"):
         await process_users_search(message)
         return True
     
-    if ctx.get(f"admin_change_rating_{user_id}"):
+    if await ctx.get(f"admin_change_rating_{user_id}"):
         await process_change_rating(message)
         return True
     
-    if ctx.get(f"admin_broadcast_{user_id}"):
+    if await ctx.get(f"admin_broadcast_{user_id}"):
         await process_broadcast(message)
         return True
     
-    if ctx.get(f"admin_change_tariff_{user_id}"):
+    if await ctx.get(f"admin_change_tariff_{user_id}"):
         await process_new_tariff(message)
         return True
     
-    if ctx.get(f"admin_change_coefficient_{user_id}"):
+    if await ctx.get(f"admin_change_coefficient_{user_id}"):
         await process_new_coefficient(message)
         return True
     
-    if ctx.get(f"admin_change_angle_{user_id}"):
+    if await ctx.get(f"admin_change_angle_{user_id}"):
         await process_new_angle(message)
         return True
     
-    rating_state = ctx.get(f"rating_state_{user_id}")
+    rating_state = await ctx.get(f"rating_state_{user_id}")
     if rating_state is not None:
         logger.info(f"Processing rating state: {rating_state}")
         if rating_state == RatingState.WAITING_RATING:
             await process_rating(message)
             return True
     
-    edit_state = ctx.get(f"edit_state_{user_id}")
+    edit_state = await ctx.get(f"edit_state_{user_id}")
     if edit_state is not None:
         logger.info(f"Processing edit state: {edit_state}")
         if edit_state == EditProfileState.CHOOSING_FIELD:
@@ -119,7 +121,7 @@ async def state_router(message: Message):
             await process_edit_phone(message)
         return True
     
-    reg_state = ctx.get(f"reg_state_{user_id}")
+    reg_state = await ctx.get(f"reg_state_{user_id}")
     if reg_state is not None:
         logger.info(f"Processing reg state: {reg_state}")
         if reg_state == RegistrationState.WAITING_NAME:
@@ -132,7 +134,7 @@ async def state_router(message: Message):
             await process_phone(message)
         return True
     
-    create_state = ctx.get(f"create_trip_{user_id}")
+    create_state = await ctx.get(f"create_trip_{user_id}")
     if create_state is not None:
         logger.info(f"Processing create state: {create_state}")
         if create_state == CreateTripState.WAITING_ROUTE:
@@ -153,7 +155,7 @@ async def state_router(message: Message):
             await process_publish(message)
         return True
     
-    search_state = ctx.get(f"search_state_{user_id}")
+    search_state = await ctx.get(f"search_state_{user_id}")
     if search_state is not None:
         logger.info(f"Processing search state: {search_state}")
         if search_state == SearchState.WAITING_ROUTE:
@@ -171,8 +173,18 @@ async def state_router(message: Message):
 async def main():
     logger.add(settings.LOG_FILE, rotation="10 MB", retention="7 days", level="INFO")
     
+    # Инициализируем БД
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    
+    # Прогреваем Redis
+    try:
+        r = await get_redis()
+        await r.ping()
+        logger.info("Redis подключён успешно")
+    except Exception as e:
+        logger.error(f"Redis недоступен: {e}")
+        logger.warning("Бот запущен без Redis — состояния будут теряться при перезапуске")
 
     bot = Bot(token=settings.VK_GROUP_TOKEN)
 
@@ -294,20 +306,31 @@ async def main():
             await unsubscribe_handler(message)
             return
         
-        safe_delete_ctx(f"search_results_{user_id}")
+        await safe_delete_ctx(f"search_results_{user_id}")
         
         handled = await state_router(message)
         
         if not handled:
             await send_main_menu(message)
 
-    asyncio.create_task(run_scheduler())
+    # Запускаем планировщик как фоновую задачу
+    scheduler_task = asyncio.create_task(run_scheduler())
 
     try:
         logger.info("Бот запущен")
         await bot.run_polling()
+    except asyncio.CancelledError:
+        logger.info("Бот получил сигнал отмены")
     finally:
-        logger.info("Бот остановлен")
+        logger.info("Остановка бота...")
+        scheduler_task.cancel()
+        try:
+            await scheduler_task
+        except asyncio.CancelledError:
+            pass
+        await close_db()
+        await close_redis()
+        logger.info("Бот остановлен корректно")
 
 if __name__ == "__main__":
     asyncio.run(main())
