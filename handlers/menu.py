@@ -2,7 +2,7 @@ from vkbottle import BaseStateGroup
 from vkbottle.bot import Message
 from keyboards import main_menu_keyboard
 from db import get_session
-from models import User, Rating
+from models import User, Rating, PendingRating
 from loguru import logger
 from vkbottle import Keyboard, Text, KeyboardButtonColor, API
 from utils.db_utils import get_user_by_vk_id, update_user_rating
@@ -39,6 +39,28 @@ async def send_notification(user_vk_id: int, message_text: str):
         logger.info(f"Notification sent to {user_vk_id}")
     except Exception as e:
         logger.error(f"Failed to send notification to {user_vk_id}: {e}")
+
+# ============ Проверка ожидающих оценок ============
+
+async def check_pending_ratings(vk_id: int):
+    """Проверяет и отправляет ожидающие оценки"""
+    async for session in get_session():
+        result = await session.execute(
+            select(PendingRating).where(PendingRating.from_user_vk_id == vk_id).limit(1)
+        )
+        pending = result.scalar()
+        if pending:
+            await send_rating_request(
+                user_id=vk_id,
+                trip_id=pending.trip_id,
+                target_id=pending.to_user_id,
+                target_name=pending.target_name
+            )
+            await session.delete(pending)
+            await session.commit()
+            logger.info(f"Pending rating sent to {vk_id}")
+            return True
+    return False
 
 # ============ Главное меню ============
 
@@ -387,7 +409,6 @@ async def process_rating(message: Message):
         return
     
     async for session in get_session():
-        # Находим пользователя по VK ID
         from_user = await get_user_by_vk_id(session, user_vk_id)
         if not from_user:
             await message.answer("❌ Пользователь не найден")
