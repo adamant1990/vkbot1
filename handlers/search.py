@@ -5,7 +5,7 @@ from db import get_session
 from models import Trip, TripStatus, User, Booking, BookingStatus, Subscription
 from sqlalchemy import select, and_
 from loguru import logger
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from vkbottle import Keyboard, Text, KeyboardButtonColor, API
 from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_setting
 from storage import ctx
@@ -116,6 +116,13 @@ async def search_trip_handler(message: Message):
         
         if user.is_banned:
             await message.answer("❌ Ваш аккаунт заблокирован")
+            return
+        
+        if user.banned_until and user.banned_until > datetime.now(timezone.utc):
+            await message.answer(
+                f"🚫 Вы временно заблокированы до {user.banned_until.strftime('%d.%m.%Y %H:%M')} (МСК) "
+                f"из-за отмены бронирования менее чем за 2 часа."
+            )
             return
     
     await message.answer(
@@ -430,6 +437,15 @@ async def handle_search_action(message: Message):
         
         async for session in get_session():
             user = await get_user_by_vk_id(session, user_id)
+            
+            # Проверка временной блокировки
+            if user.banned_until and user.banned_until > datetime.now(timezone.utc):
+                await message.answer(
+                    f"🚫 Вы временно заблокированы до {user.banned_until.strftime('%d.%m.%Y %H:%M')} (МСК) "
+                    f"из-за отмены бронирования менее чем за 2 часа."
+                )
+                return
+            
             from utils.db_utils import get_trip_by_id
             trip = await get_trip_by_id(session, trip_id)
             driver = await get_user_by_id(session, trip.driver_id)
@@ -518,13 +534,4 @@ async def handle_search_action(message: Message):
                 route_to=route_to,
                 date=search_date
             )
-            session.add(subscription)
-            await session.commit()
-            
-            safe_delete(f"search_results_{user_id}")
-            
-            await message.answer(
-                "🔔 Вы подписались на уведомления!\n"
-                "Когда появится подходящая поездка, бот сообщит вам.",
-                keyboard=main_menu_keyboard()
-    )
+            session.ad
