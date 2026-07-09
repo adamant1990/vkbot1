@@ -140,9 +140,13 @@ async def create_trip_handler(message: Message):
 async def process_route(message: Message):
     """Обрабатывает введенный маршрут"""
     user_id = message.from_id
+    logger.info(f"process_route called with: '{message.text}' from user {user_id}")
+    
     route_from, route_to = parse_route(message.text.strip())
+    logger.info(f"parse_route result: from='{route_from}', to='{route_to}'")
     
     if not route_from or not route_to:
+        logger.warning(f"Failed to parse route from: '{message.text}'")
         await message.answer(
             "❌ Не удалось определить маршрут.\n"
             "Используйте форматы:\n"
@@ -151,16 +155,21 @@ async def process_route(message: Message):
         )
         return
     
-    await ctx.set(f"trip_from_{user_id}", route_from)
-    await ctx.set(f"trip_to_{user_id}", route_to)
-    
-    keyboard = build_calendar_keyboard()
-    await message.answer(
-        f"📍 Маршрут: {route_from} → {route_to}\n\n"
-        "📅 Выберите дату поездки:",
-        keyboard=keyboard.get_json()
-    )
-    await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_DATE)
+    try:
+        await ctx.set(f"trip_from_{user_id}", route_from)
+        await ctx.set(f"trip_to_{user_id}", route_to)
+        
+        keyboard = build_calendar_keyboard()
+        await message.answer(
+            f"📍 Маршрут: {route_from} → {route_to}\n\n"
+            "📅 Выберите дату поездки:",
+            keyboard=keyboard.get_json()
+        )
+        await ctx.set(f"create_trip_{user_id}", CreateTripState.WAITING_DATE)
+        logger.info(f"Route processed successfully for user {user_id}: {route_from} -> {route_to}")
+    except Exception as e:
+        logger.error(f"Error in process_route: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при обработке маршрута. Попробуйте ещё раз.")
 
 async def process_calendar_date(message: Message):
     """Обрабатывает выбор даты из календаря"""
