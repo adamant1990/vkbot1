@@ -30,6 +30,7 @@ class User(Base):
     rating = Column(Float, default=None, nullable=True)
     rating_count = Column(Integer, default=0)
     is_banned = Column(Boolean, default=False)
+    banned_until = Column(DateTime(timezone=True), nullable=True)  # временная блокировка
 
     trips = relationship("Trip", back_populates="driver")
     bookings = relationship("Booking", back_populates="passenger")
