@@ -104,55 +104,54 @@ async def state_router(message: Message):
         rating_state = await ctx.get(f"rating_state_{user_id}")
         if rating_state is not None:
             logger.info(f"Processing rating state: {rating_state}")
-            if rating_state == RatingState.WAITING_RATING.value:
+            if int(rating_state) == int(RatingState.WAITING_RATING.value):
                 await process_rating(message)
                 return True
         
         edit_state = await ctx.get(f"edit_state_{user_id}")
         if edit_state is not None:
             logger.info(f"Processing edit state: {edit_state}")
-            if edit_state == EditProfileState.CHOOSING_FIELD.value:
+            if int(edit_state) == int(EditProfileState.CHOOSING_FIELD.value):
                 await process_edit_choice(message)
-            elif edit_state == EditProfileState.EDITING_NAME.value:
+            elif int(edit_state) == int(EditProfileState.EDITING_NAME.value):
                 await process_edit_name(message)
-            elif edit_state == EditProfileState.EDITING_AGE.value:
+            elif int(edit_state) == int(EditProfileState.EDITING_AGE.value):
                 await process_edit_age(message)
-            elif edit_state == EditProfileState.EDITING_PHONE.value:
+            elif int(edit_state) == int(EditProfileState.EDITING_PHONE.value):
                 await process_edit_phone(message)
             return True
         
         reg_state = await ctx.get(f"reg_state_{user_id}")
         if reg_state is not None:
             logger.info(f"Processing reg state: {reg_state}")
-            if reg_state == RegistrationState.WAITING_NAME.value:
+            if int(reg_state) == int(RegistrationState.WAITING_NAME.value):
                 await process_name(message)
-            elif reg_state == RegistrationState.WAITING_AGE.value:
+            elif int(reg_state) == int(RegistrationState.WAITING_AGE.value):
                 await process_age(message)
-            elif reg_state == RegistrationState.WAITING_GENDER.value:
+            elif int(reg_state) == int(RegistrationState.WAITING_GENDER.value):
                 await process_gender(message)
-            elif reg_state == RegistrationState.WAITING_PHONE.value:
+            elif int(reg_state) == int(RegistrationState.WAITING_PHONE.value):
                 await process_phone(message)
             return True
         
         create_state = await ctx.get(f"create_trip_{user_id}")
         if create_state is not None:
-            logger.info(f"Processing create state: {create_state!r}, type: {type(create_state).__name__}, WAITING_ROUTE.value={CreateTripState.WAITING_ROUTE.value!r}, equal: {create_state == CreateTripState.WAITING_ROUTE.value}")
-            if create_state == CreateTripState.WAITING_ROUTE.value:
-                logger.info("Calling process_route...")
+            logger.info(f"Processing create state: {create_state}")
+            if int(create_state) == int(CreateTripState.WAITING_ROUTE.value):
                 await process_route(message)
-            elif create_state == CreateTripState.WAITING_DATE.value:
+            elif int(create_state) == int(CreateTripState.WAITING_DATE.value):
                 await process_calendar_date(message)
-            elif create_state == CreateTripState.WAITING_MANUAL_DATE.value:
+            elif int(create_state) == int(CreateTripState.WAITING_MANUAL_DATE.value):
                 await process_manual_date(message)
-            elif create_state == CreateTripState.WAITING_TIME.value:
+            elif int(create_state) == int(CreateTripState.WAITING_TIME.value):
                 await process_time(message)
-            elif create_state == CreateTripState.WAITING_SEATS.value:
+            elif int(create_state) == int(CreateTripState.WAITING_SEATS.value):
                 await process_seats(message)
-            elif create_state == CreateTripState.WAITING_PRICE.value:
+            elif int(create_state) == int(CreateTripState.WAITING_PRICE.value):
                 await process_price(message)
-            elif create_state == CreateTripState.WAITING_COMMENT.value:
+            elif int(create_state) == int(CreateTripState.WAITING_COMMENT.value):
                 await process_comment(message)
-            elif create_state == CreateTripState.WAITING_PUBLISH.value:
+            elif int(create_state) == int(CreateTripState.WAITING_PUBLISH.value):
                 await process_publish(message)
             else:
                 logger.warning(f"Unknown create state: {create_state}")
@@ -161,13 +160,13 @@ async def state_router(message: Message):
         search_state = await ctx.get(f"search_state_{user_id}")
         if search_state is not None:
             logger.info(f"Processing search state: {search_state}")
-            if search_state == SearchState.WAITING_ROUTE.value:
+            if int(search_state) == int(SearchState.WAITING_ROUTE.value):
                 await process_search_route(message)
-            elif search_state == SearchState.WAITING_DATE.value:
+            elif int(search_state) == int(SearchState.WAITING_DATE.value):
                 await process_search_calendar_date(message)
-            elif search_state == SearchState.WAITING_MANUAL_DATE.value:
+            elif int(search_state) == int(SearchState.WAITING_MANUAL_DATE.value):
                 await process_search_manual_date(message)
-            elif search_state == SearchState.WAITING_SORT.value:
+            elif int(search_state) == int(SearchState.WAITING_SORT.value):
                 await process_sort_and_search(message)
             return True
         
