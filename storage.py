@@ -60,6 +60,8 @@ class RedisStorage:
             value = value.isoformat()
         elif value is None:
             value = "null"
+        elif hasattr(value, 'value'):  # Enum
+            value = str(value.value)
         await r.set(self._make_key(key), value, ex=expire)
     
     async def delete(self, key: str):
