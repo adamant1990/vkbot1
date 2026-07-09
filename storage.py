@@ -4,6 +4,7 @@ import redis.asyncio as redis
 from config import settings
 import json
 import os
+from datetime import datetime
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 
@@ -31,7 +32,7 @@ class RedisStorage:
             value = json.loads(value)
         except (json.JSONDecodeError, TypeError):
             pass
-        # Если строка — пробуем преобразовать в число или bool
+        # Если строка — пробуем преобразовать
         if isinstance(value, str):
             if value.isdigit():
                 return int(value)
@@ -39,6 +40,11 @@ class RedisStorage:
                 return float(value)
             if value.lower() in ('true', 'false'):
                 return value.lower() == 'true'
+            # Пробуем ISO datetime
+            try:
+                return datetime.fromisoformat(value)
+            except (ValueError, TypeError):
+                pass
         return value
     
     async def set(self, key: str, value, expire: int = 3600):
@@ -48,6 +54,8 @@ class RedisStorage:
             value = json.dumps(value, default=str)
         elif isinstance(value, bool):
             value = str(value)
+        elif isinstance(value, datetime):
+            value = value.isoformat()
         await r.set(self._make_key(key), value, ex=expire)
     
     async def delete(self, key: str):
