@@ -79,7 +79,7 @@ class Subscription(Base):
 class Rating(Base):
     __tablename__ = "ratings"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    booking_id = Column(Integer, ForeignKey("bookings.id"), unique=True, nullable=False)
+    booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False)
     from_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     to_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     value = Column(Integer, nullable=False)
