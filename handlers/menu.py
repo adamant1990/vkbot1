@@ -40,28 +40,6 @@ async def send_notification(user_vk_id: int, message_text: str):
     except Exception as e:
         logger.error(f"Failed to send notification to {user_vk_id}: {e}")
 
-# ============ Проверка ожидающих оценок ============
-
-async def check_pending_ratings(vk_id: int):
-    """Проверяет и отправляет ожидающие оценки"""
-    async for session in get_session():
-        result = await session.execute(
-            select(PendingRating).where(PendingRating.from_user_vk_id == vk_id).limit(1)
-        )
-        pending = result.scalar()
-        if pending:
-            await send_rating_request(
-                user_id=vk_id,
-                trip_id=pending.trip_id,
-                target_id=pending.to_user_id,
-                target_name=pending.target_name
-            )
-            await session.delete(pending)
-            await session.commit()
-            logger.info(f"Pending rating sent to {vk_id}")
-            return True
-    return False
-
 # ============ Главное меню ============
 
 async def send_main_menu(message: Message):
@@ -379,15 +357,12 @@ async def send_rating_request(user_id: int, trip_id: int, target_id: int, target
             keyboard=keyboard.get_json(),
             random_id=0
         )
-        ctx.set(f"rating_trip_{user_id}", trip_id)
-        ctx.set(f"rating_target_{user_id}", target_id)
-        ctx.set(f"rating_state_{user_id}", RatingState.WAITING_RATING)
         logger.info(f"Rating request sent to {user_id}")
     except Exception as e:
         logger.error(f"Failed to send rating request to {user_id}: {e}")
 
 async def process_rating(message: Message):
-    """Обрабатывает оценку от пользователя"""
+    """Обрабатывает оценку от пользователя (читает контекст из БД)"""
     user_vk_id = message.from_id
     text = message.text.strip()
     
@@ -400,19 +375,25 @@ async def process_rating(message: Message):
         await message.answer("❌ Пожалуйста, выберите оценку от 1 до 5")
         return
     
-    trip_id = ctx.get(f"rating_trip_{user_vk_id}")
-    target_id = ctx.get(f"rating_target_{user_vk_id}")
-    
-    if not trip_id or not target_id:
-        await message.answer("❌ Данные об оценке устарели")
-        ctx.delete(f"rating_state_{user_vk_id}")
-        return
-    
     async for session in get_session():
+        # Ищем ожидающую оценку в БД (PendingRating)
+        result = await session.execute(
+            select(PendingRating).where(PendingRating.from_user_vk_id == user_vk_id).limit(1)
+        )
+        pending = result.scalar()
+        
+        if not pending:
+            await message.answer("❌ Данные об оценке устарели")
+            return
+        
+        trip_id = pending.trip_id
+        target_id = pending.to_user_id
+        
         from_user = await get_user_by_vk_id(session, user_vk_id)
         if not from_user:
             await message.answer("❌ Пользователь не найден")
-            ctx.delete(f"rating_state_{user_vk_id}")
+            await session.delete(pending)
+            await session.commit()
             return
         
         existing = await session.execute(
@@ -425,7 +406,8 @@ async def process_rating(message: Message):
         )
         if existing.scalar():
             await message.answer("❌ Вы уже оценили эту поездку")
-            ctx.delete(f"rating_state_{user_vk_id}")
+            await session.delete(pending)
+            await session.commit()
             return
         
         rating = Rating(
@@ -435,6 +417,9 @@ async def process_rating(message: Message):
             value=rating_value
         )
         session.add(rating)
+        
+        # Удаляем ожидающую оценку
+        await session.delete(pending)
         await session.commit()
         
         await update_user_rating(session, target_id)
@@ -444,7 +429,3 @@ async def process_rating(message: Message):
             keyboard=main_menu_keyboard()
         )
         logger.info(f"Rating {rating_value} from {from_user.id} to {target_id}")
-    
-    ctx.delete(f"rating_state_{user_vk_id}")
-    ctx.delete(f"rating_trip_{user_vk_id}")
-    ctx.delete(f"rating_target_{user_vk_id}")
