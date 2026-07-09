@@ -1,11 +1,11 @@
 from vkbottle.bot import Message
 from keyboards import main_menu_keyboard
 from db import get_session
-from models import Trip, User, Booking, BookingStatus, Subscription
+from models import Trip, User, Booking, BookingStatus, Subscription, Rating
 from sqlalchemy import select, and_
 from datetime import datetime, timezone, timedelta
 from vkbottle import Keyboard, Text, KeyboardButtonColor
-from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_trip_by_id, get_booking_by_id
+from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_trip_by_id, get_booking_by_id, update_user_rating
 from loguru import logger
 
 async def my_bookings_menu_handler(message: Message):
@@ -60,7 +60,7 @@ async def my_bookings_handler(message: Message):
             await message.answer(booking_info, keyboard=keyboard.get_json())
 
 async def cancel_booking_handler(message: Message):
-    """Отменяет бронирование с проверкой времени"""
+    """Отменяет бронирование с проверкой времени и штрафом"""
     booking_id = int(message.text.split()[-1])
     
     async for session in get_session():
@@ -81,9 +81,26 @@ async def cancel_booking_handler(message: Message):
         time_until_departure = trip.departure_time - now
         
         if time_until_departure < timedelta(hours=2):
-            if user.rating is not None:
-                user.rating = max(0, user.rating - 0.5)
-                await message.answer("⚠️ Отмена менее чем за 2 часа! Ваш рейтинг снижен на 0.5 балла.")
+            # Блокировка на 24 часа
+            user.banned_until = now + timedelta(hours=24)
+            
+            # Добавляем оценку 1 как штраф
+            penalty = Rating(
+                booking_id=booking.id,
+                from_user_id=user.id,
+                to_user_id=user.id,
+                value=1
+            )
+            session.add(penalty)
+            
+            # Пересчитываем рейтинг
+            await update_user_rating(session, user.id)
+            
+            await message.answer(
+                "⚠️ Отмена менее чем за 2 часа!\n"
+                "🚫 Вы заблокированы на 24 часа.\n"
+                "⭐ Ваш рейтинг снижен."
+            )
         
         if booking.status == BookingStatus.accepted:
             trip.seats_available += 1
