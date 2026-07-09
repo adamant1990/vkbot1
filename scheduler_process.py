@@ -19,7 +19,7 @@ async def complete_trips_and_request_ratings():
             select(Subscription).where(
                 and_(
                     Subscription.date.isnot(None),
-                    Subscription.date < now
+                    Subscription.date < now.replace(tzinfo=None)
                 )
             )
         )
@@ -53,7 +53,6 @@ async def complete_trips_and_request_ratings():
             trip.status = TripStatus.completed
             logger.info(f"Trip {trip.id} marked as completed")
             
-            # Получаем подтвержденных пассажиров
             bookings_result = await session.execute(
                 select(Booking).where(
                     and_(
@@ -64,7 +63,6 @@ async def complete_trips_and_request_ratings():
             )
             accepted_bookings = bookings_result.scalars().all()
             
-            # Получаем водителя
             driver = await session.get(User, trip.driver_id)
             
             if driver:
