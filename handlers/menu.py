@@ -74,7 +74,7 @@ async def process_name(message: Message):
     full_name = message.text.strip()
     
     if full_name in ["Начать", "Меню", "👤 Профиль", "🔍 Найти поездку", "➕ Создать поездку", 
-                      "📋 Мои поездки", "📌 Мои бронирования и подписки", "🛡️ Техподдержка",
+                      "🚗 ЛК Водителя", "🧑 ЛК Пассажира", "🛡️ Техподдержка",
                       "✏️ Редактировать профиль"]:
         await message.answer("❌ Пожалуйста, введите ваше имя и фамилию:")
         return
@@ -366,7 +366,7 @@ async def send_rating_request(user_id: int, trip_id: int, target_id: int, target
 
 async def process_rating(message: Message):
     """Обрабатывает оценку от пользователя"""
-    user_id = message.from_id
+    user_vk_id = message.from_id
     text = message.text.strip()
     
     try:
@@ -378,31 +378,38 @@ async def process_rating(message: Message):
         await message.answer("❌ Пожалуйста, выберите оценку от 1 до 5")
         return
     
-    trip_id = ctx.get(f"rating_trip_{user_id}")
-    target_id = ctx.get(f"rating_target_{user_id}")
+    trip_id = ctx.get(f"rating_trip_{user_vk_id}")
+    target_id = ctx.get(f"rating_target_{user_vk_id}")
     
     if not trip_id or not target_id:
         await message.answer("❌ Данные об оценке устарели")
-        ctx.delete(f"rating_state_{user_id}")
+        ctx.delete(f"rating_state_{user_vk_id}")
         return
     
     async for session in get_session():
+        # Находим пользователя по VK ID
+        from_user = await get_user_by_vk_id(session, user_vk_id)
+        if not from_user:
+            await message.answer("❌ Пользователь не найден")
+            ctx.delete(f"rating_state_{user_vk_id}")
+            return
+        
         existing = await session.execute(
             select(Rating).where(
                 and_(
                     Rating.booking_id == trip_id,
-                    Rating.from_user_id == user_id
+                    Rating.from_user_id == from_user.id
                 )
             )
         )
         if existing.scalar():
             await message.answer("❌ Вы уже оценили эту поездку")
-            ctx.delete(f"rating_state_{user_id}")
+            ctx.delete(f"rating_state_{user_vk_id}")
             return
         
         rating = Rating(
             booking_id=trip_id,
-            from_user_id=user_id,
+            from_user_id=from_user.id,
             to_user_id=target_id,
             value=rating_value
         )
@@ -415,8 +422,8 @@ async def process_rating(message: Message):
             f"✅ Спасибо за оценку! Вы поставили {rating_value}⭐",
             keyboard=main_menu_keyboard()
         )
-        logger.info(f"Rating {rating_value} from {user_id} to {target_id}")
+        logger.info(f"Rating {rating_value} from {from_user.id} to {target_id}")
     
-    ctx.delete(f"rating_state_{user_id}")
-    ctx.delete(f"rating_trip_{user_id}")
-    ctx.delete(f"rating_target_{user_id}")
+    ctx.delete(f"rating_state_{user_vk_id}")
+    ctx.delete(f"rating_trip_{user_vk_id}")
+    ctx.delete(f"rating_target_{user_vk_id}")
