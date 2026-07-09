@@ -57,7 +57,7 @@ async def start_handler(message: Message):
                 "Добро пожаловать! Давайте зарегистрируемся.\n"
                 "Введите ваше имя и фамилию (например: Иван Иванов):"
             )
-            ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_NAME)
+            await ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_NAME)
         else:
             # Проверка временной блокировки
             if user.banned_until and user.banned_until > datetime.now(timezone.utc):
@@ -99,11 +99,11 @@ async def process_name(message: Message):
     first_name = parts[0]
     last_name = " ".join(parts[1:])
     
-    ctx.set(f"reg_first_name_{user_id}", first_name)
-    ctx.set(f"reg_last_name_{user_id}", last_name)
+    await ctx.set(f"reg_first_name_{user_id}", first_name)
+    await ctx.set(f"reg_last_name_{user_id}", last_name)
     
     await message.answer("📅 Введите ваш возраст (от 14 до 120):")
-    ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_AGE)
+    await ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_AGE)
 
 async def process_age(message: Message):
     """Обрабатывает возраст"""
@@ -115,14 +115,14 @@ async def process_age(message: Message):
             await message.answer("❌ Возраст должен быть от 14 до 120 лет. Попробуйте ещё раз:")
             return
         
-        ctx.set(f"reg_age_{user_id}", age)
+        await ctx.set(f"reg_age_{user_id}", age)
         
         keyboard = Keyboard(inline=True)
         keyboard.add(Text("Мужской"), KeyboardButtonColor.PRIMARY)
         keyboard.add(Text("Женский"), KeyboardButtonColor.PRIMARY)
         
         await message.answer("👤 Выберите ваш пол:", keyboard=keyboard.get_json())
-        ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_GENDER)
+        await ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_GENDER)
         
     except ValueError:
         await message.answer("❌ Введите число (от 14 до 120):")
@@ -136,7 +136,7 @@ async def process_gender(message: Message):
         await message.answer("❌ Пожалуйста, выберите пол используя кнопки:")
         return
     
-    ctx.set(f"reg_gender_{user_id}", gender)
+    await ctx.set(f"reg_gender_{user_id}", gender)
     
     keyboard = Keyboard(inline=True)
     keyboard.add(Text("Пропустить"), KeyboardButtonColor.SECONDARY)
@@ -147,7 +147,7 @@ async def process_gender(message: Message):
         "Или нажмите 'Пропустить':",
         keyboard=keyboard.get_json()
     )
-    ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_PHONE)
+    await ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_PHONE)
 
 async def process_phone(message: Message):
     """Обрабатывает телефон и завершает регистрацию"""
@@ -157,14 +157,14 @@ async def process_phone(message: Message):
     if phone == "Пропустить":
         phone = None
     
-    first_name = ctx.get(f"reg_first_name_{user_id}")
-    last_name = ctx.get(f"reg_last_name_{user_id}")
-    age = ctx.get(f"reg_age_{user_id}")
-    gender = ctx.get(f"reg_gender_{user_id}")
+    first_name = await ctx.get(f"reg_first_name_{user_id}")
+    last_name = await ctx.get(f"reg_last_name_{user_id}")
+    age = await ctx.get(f"reg_age_{user_id}")
+    gender = await ctx.get(f"reg_gender_{user_id}")
     
     if not all([first_name, last_name, age, gender]):
         await message.answer("❌ Произошла ошибка. Начните регистрацию заново командой 'Начать'")
-        ctx.delete(f"reg_state_{user_id}")
+        await ctx.delete(f"reg_state_{user_id}")
         return
     
     async for session in get_session():
@@ -202,11 +202,11 @@ async def process_phone(message: Message):
                 keyboard=main_menu_keyboard()
             )
     
-    ctx.delete(f"reg_state_{user_id}")
-    ctx.delete(f"reg_first_name_{user_id}")
-    ctx.delete(f"reg_last_name_{user_id}")
-    ctx.delete(f"reg_age_{user_id}")
-    ctx.delete(f"reg_gender_{user_id}")
+    await ctx.delete(f"reg_state_{user_id}")
+    await ctx.delete(f"reg_first_name_{user_id}")
+    await ctx.delete(f"reg_last_name_{user_id}")
+    await ctx.delete(f"reg_age_{user_id}")
+    await ctx.delete(f"reg_gender_{user_id}")
 
 # ============ Редактирование профиля ============
 
@@ -238,7 +238,7 @@ async def edit_profile_handler(message: Message):
             f"Что хотите изменить?",
             keyboard=keyboard.get_json()
         )
-        ctx.set(f"edit_state_{user_id}", EditProfileState.CHOOSING_FIELD)
+        await ctx.set(f"edit_state_{user_id}", EditProfileState.CHOOSING_FIELD)
 
 async def process_edit_choice(message: Message):
     """Обрабатывает выбор поля для редактирования"""
@@ -247,10 +247,10 @@ async def process_edit_choice(message: Message):
     
     if choice == "👤 Изменить имя":
         await message.answer("Введите новое имя и фамилию (например: Иван Иванов):")
-        ctx.set(f"edit_state_{user_id}", EditProfileState.EDITING_NAME)
+        await ctx.set(f"edit_state_{user_id}", EditProfileState.EDITING_NAME)
     elif choice == "📅 Изменить возраст":
         await message.answer("Введите новый возраст (от 14 до 120):")
-        ctx.set(f"edit_state_{user_id}", EditProfileState.EDITING_AGE)
+        await ctx.set(f"edit_state_{user_id}", EditProfileState.EDITING_AGE)
     elif choice == "📱 Изменить телефон":
         keyboard = Keyboard(inline=True)
         keyboard.add(Text("Удалить телефон"), KeyboardButtonColor.NEGATIVE)
@@ -259,9 +259,9 @@ async def process_edit_choice(message: Message):
             "Введите новый номер телефона или нажмите 'Удалить телефон':",
             keyboard=keyboard.get_json()
         )
-        ctx.set(f"edit_state_{user_id}", EditProfileState.EDITING_PHONE)
+        await ctx.set(f"edit_state_{user_id}", EditProfileState.EDITING_PHONE)
     elif choice == "🔙 В меню":
-        ctx.delete(f"edit_state_{user_id}")
+        await ctx.delete(f"edit_state_{user_id}")
         await send_main_menu(message)
     else:
         await message.answer("❌ Пожалуйста, выберите действие из меню")
@@ -292,7 +292,7 @@ async def process_edit_name(message: Message):
             keyboard=main_menu_keyboard()
         )
     
-    ctx.delete(f"edit_state_{user_id}")
+    await ctx.delete(f"edit_state_{user_id}")
 
 async def process_edit_age(message: Message):
     """Обрабатывает изменение возраста"""
@@ -316,7 +316,7 @@ async def process_edit_age(message: Message):
                 keyboard=main_menu_keyboard()
             )
         
-        ctx.delete(f"edit_state_{user_id}")
+        await ctx.delete(f"edit_state_{user_id}")
     except ValueError:
         await message.answer("❌ Введите число от 14 до 120")
 
@@ -328,7 +328,7 @@ async def process_edit_phone(message: Message):
     if phone == "Удалить телефон":
         phone = None
     elif phone == "🔙 В меню":
-        ctx.delete(f"edit_state_{user_id}")
+        await ctx.delete(f"edit_state_{user_id}")
         await send_main_menu(message)
         return
     
@@ -344,7 +344,7 @@ async def process_edit_phone(message: Message):
             keyboard=main_menu_keyboard()
         )
     
-    ctx.delete(f"edit_state_{user_id}")
+    await ctx.delete(f"edit_state_{user_id}")
 
 # ============ Система рейтинга ============
 
