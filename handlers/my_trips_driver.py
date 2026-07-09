@@ -11,11 +11,12 @@ async def my_trips_menu_handler(message: Message):
     """Показывает меню раздела 'Мои поездки'"""
     keyboard = Keyboard(inline=False)
     keyboard.add(Text("🚗 Активные поездки"), KeyboardButtonColor.PRIMARY)
+    keyboard.row()
     keyboard.add(Text("📩 Входящие заявки"), KeyboardButtonColor.PRIMARY)
     keyboard.row()
     keyboard.add(Text("🔙 В меню"), KeyboardButtonColor.SECONDARY)
     
-    await message.answer("📋 Мои поездки:", keyboard=keyboard.get_json())
+    await message.answer("🚗 ЛК Водителя:", keyboard=keyboard.get_json())
 
 async def active_trips_handler(message: Message):
     """Показывает активные поездки водителя"""
@@ -207,10 +208,8 @@ async def handle_booking_response(message: Message):
     text = message.text.strip()
     parts = text.split()
     
-    # Извлекаем booking_id (последнее число)
     booking_id = int(parts[-1])
     
-    # Определяем действие по тексту
     if "Принять" in text:
         action = "Принять"
     elif "Отклонить" in text:
@@ -218,8 +217,6 @@ async def handle_booking_response(message: Message):
     else:
         logger.warning(f"Неизвестное действие: {text}")
         return
-    
-    logger.warning(f"HANDLE_BOOKING: action={action}, booking_id={booking_id}")
     
     async for session in get_session():
         booking = await get_booking_by_id(session, booking_id)
