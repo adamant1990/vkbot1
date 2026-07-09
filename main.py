@@ -77,98 +77,103 @@ async def state_router(message: Message):
     """Маршрутизирует сообщения в зависимости от активного состояния"""
     user_id = message.from_id
     
-    if await ctx.get(f"admin_users_search_input_{user_id}"):
-        await process_users_search(message)
-        return True
-    
-    if await ctx.get(f"admin_change_rating_{user_id}"):
-        await process_change_rating(message)
-        return True
-    
-    if await ctx.get(f"admin_broadcast_{user_id}"):
-        await process_broadcast(message)
-        return True
-    
-    if await ctx.get(f"admin_change_tariff_{user_id}"):
-        await process_new_tariff(message)
-        return True
-    
-    if await ctx.get(f"admin_change_coefficient_{user_id}"):
-        await process_new_coefficient(message)
-        return True
-    
-    if await ctx.get(f"admin_change_angle_{user_id}"):
-        await process_new_angle(message)
-        return True
-    
-    rating_state = await ctx.get(f"rating_state_{user_id}")
-    if rating_state is not None:
-        logger.info(f"Processing rating state: {rating_state}")
-        if rating_state == RatingState.WAITING_RATING:
-            await process_rating(message)
+    try:
+        if await ctx.get(f"admin_users_search_input_{user_id}"):
+            await process_users_search(message)
             return True
-    
-    edit_state = await ctx.get(f"edit_state_{user_id}")
-    if edit_state is not None:
-        logger.info(f"Processing edit state: {edit_state}")
-        if edit_state == EditProfileState.CHOOSING_FIELD:
-            await process_edit_choice(message)
-        elif edit_state == EditProfileState.EDITING_NAME:
-            await process_edit_name(message)
-        elif edit_state == EditProfileState.EDITING_AGE:
-            await process_edit_age(message)
-        elif edit_state == EditProfileState.EDITING_PHONE:
-            await process_edit_phone(message)
+        
+        if await ctx.get(f"admin_change_rating_{user_id}"):
+            await process_change_rating(message)
+            return True
+        
+        if await ctx.get(f"admin_broadcast_{user_id}"):
+            await process_broadcast(message)
+            return True
+        
+        if await ctx.get(f"admin_change_tariff_{user_id}"):
+            await process_new_tariff(message)
+            return True
+        
+        if await ctx.get(f"admin_change_coefficient_{user_id}"):
+            await process_new_coefficient(message)
+            return True
+        
+        if await ctx.get(f"admin_change_angle_{user_id}"):
+            await process_new_angle(message)
+            return True
+        
+        rating_state = await ctx.get(f"rating_state_{user_id}")
+        if rating_state is not None:
+            logger.info(f"Processing rating state: {rating_state}")
+            if rating_state == RatingState.WAITING_RATING:
+                await process_rating(message)
+                return True
+        
+        edit_state = await ctx.get(f"edit_state_{user_id}")
+        if edit_state is not None:
+            logger.info(f"Processing edit state: {edit_state}")
+            if edit_state == EditProfileState.CHOOSING_FIELD:
+                await process_edit_choice(message)
+            elif edit_state == EditProfileState.EDITING_NAME:
+                await process_edit_name(message)
+            elif edit_state == EditProfileState.EDITING_AGE:
+                await process_edit_age(message)
+            elif edit_state == EditProfileState.EDITING_PHONE:
+                await process_edit_phone(message)
+            return True
+        
+        reg_state = await ctx.get(f"reg_state_{user_id}")
+        if reg_state is not None:
+            logger.info(f"Processing reg state: {reg_state}")
+            if reg_state == RegistrationState.WAITING_NAME:
+                await process_name(message)
+            elif reg_state == RegistrationState.WAITING_AGE:
+                await process_age(message)
+            elif reg_state == RegistrationState.WAITING_GENDER:
+                await process_gender(message)
+            elif reg_state == RegistrationState.WAITING_PHONE:
+                await process_phone(message)
+            return True
+        
+        create_state = await ctx.get(f"create_trip_{user_id}")
+        if create_state is not None:
+            logger.info(f"Processing create state: {create_state}")
+            if create_state == CreateTripState.WAITING_ROUTE:
+                await process_route(message)
+            elif create_state == CreateTripState.WAITING_DATE:
+                await process_calendar_date(message)
+            elif create_state == CreateTripState.WAITING_MANUAL_DATE:
+                await process_manual_date(message)
+            elif create_state == CreateTripState.WAITING_TIME:
+                await process_time(message)
+            elif create_state == CreateTripState.WAITING_SEATS:
+                await process_seats(message)
+            elif create_state == CreateTripState.WAITING_PRICE:
+                await process_price(message)
+            elif create_state == CreateTripState.WAITING_COMMENT:
+                await process_comment(message)
+            elif create_state == CreateTripState.WAITING_PUBLISH:
+                await process_publish(message)
+            return True
+        
+        search_state = await ctx.get(f"search_state_{user_id}")
+        if search_state is not None:
+            logger.info(f"Processing search state: {search_state}")
+            if search_state == SearchState.WAITING_ROUTE:
+                await process_search_route(message)
+            elif search_state == SearchState.WAITING_DATE:
+                await process_search_calendar_date(message)
+            elif search_state == SearchState.WAITING_MANUAL_DATE:
+                await process_search_manual_date(message)
+            elif search_state == SearchState.WAITING_SORT:
+                await process_sort_and_search(message)
+            return True
+        
+        return False
+    except Exception as e:
+        logger.error(f"state_router error for user {user_id}: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте ещё раз или нажмите 'Начать'.")
         return True
-    
-    reg_state = await ctx.get(f"reg_state_{user_id}")
-    if reg_state is not None:
-        logger.info(f"Processing reg state: {reg_state}")
-        if reg_state == RegistrationState.WAITING_NAME:
-            await process_name(message)
-        elif reg_state == RegistrationState.WAITING_AGE:
-            await process_age(message)
-        elif reg_state == RegistrationState.WAITING_GENDER:
-            await process_gender(message)
-        elif reg_state == RegistrationState.WAITING_PHONE:
-            await process_phone(message)
-        return True
-    
-    create_state = await ctx.get(f"create_trip_{user_id}")
-    if create_state is not None:
-        logger.info(f"Processing create state: {create_state}")
-        if create_state == CreateTripState.WAITING_ROUTE:
-            await process_route(message)
-        elif create_state == CreateTripState.WAITING_DATE:
-            await process_calendar_date(message)
-        elif create_state == CreateTripState.WAITING_MANUAL_DATE:
-            await process_manual_date(message)
-        elif create_state == CreateTripState.WAITING_TIME:
-            await process_time(message)
-        elif create_state == CreateTripState.WAITING_SEATS:
-            await process_seats(message)
-        elif create_state == CreateTripState.WAITING_PRICE:
-            await process_price(message)
-        elif create_state == CreateTripState.WAITING_COMMENT:
-            await process_comment(message)
-        elif create_state == CreateTripState.WAITING_PUBLISH:
-            await process_publish(message)
-        return True
-    
-    search_state = await ctx.get(f"search_state_{user_id}")
-    if search_state is not None:
-        logger.info(f"Processing search state: {search_state}")
-        if search_state == SearchState.WAITING_ROUTE:
-            await process_search_route(message)
-        elif search_state == SearchState.WAITING_DATE:
-            await process_search_calendar_date(message)
-        elif search_state == SearchState.WAITING_MANUAL_DATE:
-            await process_search_manual_date(message)
-        elif search_state == SearchState.WAITING_SORT:
-            await process_sort_and_search(message)
-        return True
-    
-    return False
 
 async def main():
     logger.add(settings.LOG_FILE, rotation="10 MB", retention="7 days", level="INFO")
