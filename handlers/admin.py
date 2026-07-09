@@ -8,7 +8,7 @@ import os
 import asyncio
 from vkbottle import Keyboard, Text, KeyboardButtonColor
 from utils.db_utils import get_setting, set_setting, get_user_by_vk_id
-from handlers.menu import ctx
+from storage import ctx
 from keyboards import main_menu_keyboard
 
 async def admin_handler(message: Message):
@@ -136,7 +136,7 @@ async def broadcast_handler(message: Message):
         "📢 Введите текст сообщения для рассылки всем пользователям.\n"
         "Для отмены нажмите '🔙 В админ-панель'"
     )
-    ctx.set(f"admin_broadcast_{message.from_id}", True)
+    await ctx.set(f"admin_broadcast_{message.from_id}", True)
 
 async def process_broadcast(message: Message):
     """Отправляет рассылку всем пользователям"""
@@ -144,8 +144,8 @@ async def process_broadcast(message: Message):
     
     if message.text == "🔙 В админ-панель":
         try:
-            ctx.delete(f"admin_broadcast_{user_id}")
-        except KeyError:
+            await ctx.delete(f"admin_broadcast_{user_id}")
+        except Exception:
             pass
         await admin_handler(message)
         return
@@ -173,17 +173,17 @@ async def process_broadcast(message: Message):
         )
     
     try:
-        ctx.delete(f"admin_broadcast_{user_id}")
-    except KeyError:
+        await ctx.delete(f"admin_broadcast_{user_id}")
+    except Exception:
         pass
 
 # ============ Управление пользователями (Рейтинги) ============
 
-def safe_ctx_delete(key: str):
-    """Безопасное удаление ключа из CtxStorage"""
+async def safe_ctx_delete(key: str):
+    """Безопасное удаление ключа из контекста"""
     try:
-        ctx.delete(key)
-    except KeyError:
+        await ctx.delete(key)
+    except Exception:
         pass
 
 async def users_management_handler(message: Message):
@@ -191,14 +191,14 @@ async def users_management_handler(message: Message):
     if message.from_id not in settings.admin_ids_list:
         return
     
-    ctx.set(f"admin_users_page_{message.from_id}", 0)
-    safe_ctx_delete(f"admin_users_search_{message.from_id}")
+    await ctx.set(f"admin_users_page_{message.from_id}", 0)
+    await safe_ctx_delete(f"admin_users_search_{message.from_id}")
     
     await show_users_page(message, message.from_id, 0)
 
 async def show_users_page(message: Message, user_id: int, page: int):
     """Показывает страницу пользователей"""
-    search = ctx.get(f"admin_users_search_{user_id}")
+    search = await ctx.get(f"admin_users_search_{user_id}")
     
     async for session in get_session():
         if search:
@@ -261,13 +261,15 @@ async def show_users_page(message: Message, user_id: int, page: int):
         keyboard.add(Text("🔙 В админ-панель"), KeyboardButtonColor.SECONDARY)
         
         await message.answer(users_text, keyboard=keyboard.get_json())
-        ctx.set(f"admin_users_page_{user_id}", page)
+        await ctx.set(f"admin_users_page_{user_id}", page)
 
 
 async def users_navigation_handler(message: Message):
     """Обрабатывает навигацию по пользователям"""
     user_id = message.from_id
-    current_page = ctx.get(f"admin_users_page_{user_id}", 0)
+    current_page = await ctx.get(f"admin_users_page_{user_id}")
+    if current_page is None:
+        current_page = 0
     
     if "Назад" in message.text:
         new_page = max(0, current_page - 1)
@@ -288,7 +290,7 @@ async def search_users_handler(message: Message):
         "🔍 Введите ID пользователя или имя для поиска:\n"
         "Для отмены нажмите '🔙 В админ-панель'"
     )
-    ctx.set(f"admin_users_search_input_{message.from_id}", True)
+    await ctx.set(f"admin_users_search_input_{message.from_id}", True)
 
 
 async def process_users_search(message: Message):
@@ -296,13 +298,13 @@ async def process_users_search(message: Message):
     user_id = message.from_id
     
     if message.text == "🔙 В админ-панель":
-        safe_ctx_delete(f"admin_users_search_input_{user_id}")
+        await safe_ctx_delete(f"admin_users_search_input_{user_id}")
         await admin_handler(message)
         return
     
-    ctx.set(f"admin_users_search_{user_id}", message.text.strip())
-    ctx.set(f"admin_users_page_{user_id}", 0)
-    safe_ctx_delete(f"admin_users_search_input_{user_id}")
+    await ctx.set(f"admin_users_search_{user_id}", message.text.strip())
+    await ctx.set(f"admin_users_page_{user_id}", 0)
+    await safe_ctx_delete(f"admin_users_search_input_{user_id}")
     
     await show_users_page(message, user_id, 0)
 
@@ -354,16 +356,16 @@ async def change_rating_handler(message: Message):
             f"Текущий: {user.rating or 'нет'}\n"
             "Для отмены нажмите '🔙 В админ-панель'"
         )
-        ctx.set(f"admin_change_rating_{message.from_id}", vk_id)
+        await ctx.set(f"admin_change_rating_{message.from_id}", vk_id)
 
 
 async def process_change_rating(message: Message):
     """Сохраняет новый рейтинг пользователя"""
     user_id = message.from_id
-    target_vk_id = ctx.get(f"admin_change_rating_{user_id}")
+    target_vk_id = await ctx.get(f"admin_change_rating_{user_id}")
     
     if message.text == "🔙 В админ-панель":
-        safe_ctx_delete(f"admin_change_rating_{user_id}")
+        await safe_ctx_delete(f"admin_change_rating_{user_id}")
         await admin_handler(message)
         return
     
@@ -387,7 +389,7 @@ async def process_change_rating(message: Message):
             )
             logger.info(f"Admin {user_id} changed rating of {target_vk_id} to {new_rating}")
     
-    safe_ctx_delete(f"admin_change_rating_{user_id}")
+    await safe_ctx_delete(f"admin_change_rating_{user_id}")
 
 
 async def reset_rating_handler(message: Message):
@@ -457,7 +459,7 @@ async def change_tariff_handler(message: Message):
         "Введите новый тариф за км (например: 4.5):\n"
         "Для отмены нажмите '🔙 В админ-панель'"
     )
-    ctx.set(f"admin_change_tariff_{message.from_id}", True)
+    await ctx.set(f"admin_change_tariff_{message.from_id}", True)
 
 async def change_coefficient_handler(message: Message):
     """Запрашивает новый дорожный коэффициент"""
@@ -472,7 +474,7 @@ async def change_coefficient_handler(message: Message):
         "Введите новый дорожный коэффициент (например: 1.5):\n"
         "Для отмены нажмите '🔙 В админ-панель'"
     )
-    ctx.set(f"admin_change_coefficient_{message.from_id}", True)
+    await ctx.set(f"admin_change_coefficient_{message.from_id}", True)
 
 async def change_angle_handler(message: Message):
     """Запрашивает новый максимальный угол"""
@@ -487,14 +489,14 @@ async def change_angle_handler(message: Message):
         "Введите новый угол (20-180, рекомендуется 100-110):\n"
         "Для отмены нажмите '🔙 В админ-панель'"
     )
-    ctx.set(f"admin_change_angle_{message.from_id}", True)
+    await ctx.set(f"admin_change_angle_{message.from_id}", True)
 
 async def process_new_tariff(message: Message):
     """Сохраняет новый тариф"""
     user_id = message.from_id
     
     if message.text == "🔙 В админ-панель":
-        safe_ctx_delete(f"admin_change_tariff_{user_id}")
+        await safe_ctx_delete(f"admin_change_tariff_{user_id}")
         await price_settings_handler(message)
         return
     
@@ -517,14 +519,14 @@ async def process_new_tariff(message: Message):
             keyboard=keyboard.get_json()
         )
     
-    safe_ctx_delete(f"admin_change_tariff_{user_id}")
+    await safe_ctx_delete(f"admin_change_tariff_{user_id}")
 
 async def process_new_coefficient(message: Message):
     """Сохраняет новый дорожный коэффициент"""
     user_id = message.from_id
     
     if message.text == "🔙 В админ-панель":
-        safe_ctx_delete(f"admin_change_coefficient_{user_id}")
+        await safe_ctx_delete(f"admin_change_coefficient_{user_id}")
         await price_settings_handler(message)
         return
     
@@ -540,43 +542,4 @@ async def process_new_coefficient(message: Message):
     async for session in get_session():
         await set_setting(session, "road_coefficient", str(new_coef))
         
-        keyboard = Keyboard(inline=False)
-        keyboard.add(Text("🔙 К настройкам"), KeyboardButtonColor.SECONDARY)
-        
-        await message.answer(
-            f"✅ Дорожный коэффициент изменён на {new_coef}",
-            keyboard=keyboard.get_json()
-        )
-    
-    safe_ctx_delete(f"admin_change_coefficient_{user_id}")
-
-async def process_new_angle(message: Message):
-    """Сохраняет новый максимальный угол"""
-    user_id = message.from_id
-    
-    if message.text == "🔙 В админ-панель":
-        safe_ctx_delete(f"admin_change_angle_{user_id}")
-        await price_settings_handler(message)
-        return
-    
-    try:
-        new_angle = int(message.text.strip())
-        if new_angle < 20 or new_angle > 180:
-            await message.answer("❌ Угол должен быть от 20 до 180 градусов")
-            return
-    except ValueError:
-        await message.answer("❌ Введите целое число (например: 110)")
-        return
-    
-    async for session in get_session():
-        await set_setting(session, "max_angle", str(new_angle))
-        
-        keyboard = Keyboard(inline=False)
-        keyboard.add(Text("🔙 К настройкам"), KeyboardButtonColor.SECONDARY)
-        
-        await message.answer(
-            f"✅ Максимальный угол изменён на {new_angle}°",
-            keyboard=keyboard.get_json()
-        )
-    
-    safe_ctx_delete(f"admin_change_angle_{user_id}")
+        k
