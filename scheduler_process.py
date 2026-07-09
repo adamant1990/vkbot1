@@ -1,20 +1,31 @@
 import datetime
 from sqlalchemy import select, and_
 from db import async_session_maker
-from models import Trip, TripStatus, Booking, BookingStatus, User
+from models import Trip, TripStatus, Booking, BookingStatus, User, Subscription
 from loguru import logger
 from vkbottle import API
 from config import settings
 
 async def complete_trips_and_request_ratings():
-    """Завершает поездки через 24 часа после отправления и запрашивает оценки"""
+    """Завершает поездки через 24 часа, запрашивает оценки и чистит старые подписки"""
     logger.info("Scheduler: checking trips to complete...")
     
     async with async_session_maker() as session:
         now = datetime.datetime.now(datetime.timezone.utc)
         cutoff = now - datetime.timedelta(hours=24)
         
-        # Находим активные поездки, которые пора завершить
+        # === Очистка старых подписок ===
+        old_subs_result = await session.execute(
+            select(Subscription).where(Subscription.date < now)
+        )
+        old_subs = old_subs_result.scalars().all()
+        if old_subs:
+            for sub in old_subs:
+                await session.delete(sub)
+            await session.commit()
+            logger.info(f"Scheduler: cleaned {len(old_subs)} old subscriptions")
+        
+        # === Завершение поездок ===
         result = await session.execute(
             select(Trip).where(
                 and_(
@@ -52,7 +63,7 @@ async def complete_trips_and_request_ratings():
             driver = await session.get(User, trip.driver_id)
             
             if driver:
-                # Отправляем запрос на оценку водителю (оценка пассажиров)
+                # Отправляем запрос на оценку водителю
                 for booking in accepted_bookings:
                     passenger = await session.get(User, booking.passenger_id)
                     if passenger:
@@ -68,7 +79,7 @@ async def complete_trips_and_request_ratings():
                         except Exception as e:
                             logger.error(f"Failed to send rating request to driver: {e}")
             
-            # Отправляем запрос на оценку каждому пассажиру (оценка водителя)
+            # Отправляем запрос на оценку каждому пассажиру
             for booking in accepted_bookings:
                 passenger = await session.get(User, booking.passenger_id)
                 if passenger:
@@ -80,7 +91,7 @@ async def complete_trips_and_request_ratings():
                             target_id=driver.id if driver else None,
                             target_name=f"{driver.first_name} {driver.last_name}" if driver else "водитель"
                         )
-                        logger.info(f"Rating request sent to passenger {passenger.vk_id} for driver {driver.id if driver else 'unknown'}")
+                        logger.info(f"Rating request sent to passenger {passenger.vk_id}")
                     except Exception as e:
                         logger.error(f"Failed to send rating request to passenger: {e}")
         
