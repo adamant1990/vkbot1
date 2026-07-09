@@ -136,8 +136,9 @@ async def state_router(message: Message):
         
         create_state = await ctx.get(f"create_trip_{user_id}")
         if create_state is not None:
-            logger.info(f"Processing create state: {create_state}")
+            logger.info(f"Processing create state: {create_state!r}, type: {type(create_state).__name__}, WAITING_ROUTE.value={CreateTripState.WAITING_ROUTE.value!r}, equal: {create_state == CreateTripState.WAITING_ROUTE.value}")
             if create_state == CreateTripState.WAITING_ROUTE.value:
+                logger.info("Calling process_route...")
                 await process_route(message)
             elif create_state == CreateTripState.WAITING_DATE.value:
                 await process_calendar_date(message)
