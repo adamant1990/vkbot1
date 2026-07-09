@@ -26,13 +26,20 @@ class RedisStorage:
         value = await r.get(self._make_key(key))
         if value is None:
             return default
+        # Пробуем JSON
         try:
-            return json.loads(value)
+            value = json.loads(value)
         except (json.JSONDecodeError, TypeError):
-            # Пробуем преобразовать в int
-            if isinstance(value, str) and value.isdigit():
+            pass
+        # Если строка — пробуем преобразовать в число или bool
+        if isinstance(value, str):
+            if value.isdigit():
                 return int(value)
-            return value
+            if value.replace('.', '', 1).replace('-', '', 1).isdigit():
+                return float(value)
+            if value.lower() in ('true', 'false'):
+                return value.lower() == 'true'
+        return value
     
     async def set(self, key: str, value, expire: int = 3600):
         """Устанавливает значение с TTL 1 час (по умолчанию)"""
