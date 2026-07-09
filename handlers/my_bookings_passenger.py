@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from vkbottle import Keyboard, Text, KeyboardButtonColor
 from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_trip_by_id, get_booking_by_id, update_user_rating
 from loguru import logger
+from storage import ctx
 
 async def my_bookings_menu_handler(message: Message):
     """Показывает меню раздела бронирований"""
@@ -60,8 +61,9 @@ async def my_bookings_handler(message: Message):
             await message.answer(booking_info, keyboard=keyboard.get_json())
 
 async def cancel_booking_handler(message: Message):
-    """Отменяет бронирование с проверкой времени и штрафом"""
+    """Первый шаг отмены — проверка времени"""
     booking_id = int(message.text.split()[-1])
+    user_id = message.from_id
     
     async for session in get_session():
         booking = await get_booking_by_id(session, booking_id)
@@ -69,58 +71,98 @@ async def cancel_booking_handler(message: Message):
             await message.answer("❌ Бронирование не найдено или уже отменено")
             return
         
-        user = await get_user_by_vk_id(session, message.from_id)
+        user = await get_user_by_vk_id(session, user_id)
         if booking.passenger_id != user.id:
             await message.answer("❌ Это не ваше бронирование")
             return
         
         trip = await get_trip_by_id(session, booking.trip_id)
-        driver = await get_user_by_id(session, trip.driver_id)
         
         now = datetime.now(timezone.utc)
         time_until_departure = trip.departure_time - now
         
         if time_until_departure < timedelta(hours=2):
-            # Блокировка на 24 часа
-            user.banned_until = now + timedelta(hours=24)
-            
-            # Добавляем оценку 1 как штраф
-            penalty = Rating(
-                booking_id=booking.id,
-                from_user_id=user.id,
-                to_user_id=user.id,
-                value=1
-            )
-            session.add(penalty)
-            
-            # Пересчитываем рейтинг
-            await update_user_rating(session, user.id)
+            # Предупреждение с кнопками подтверждения
+            keyboard = Keyboard(inline=True)
+            keyboard.add(Text(f"⚠️ Да, отменить {booking.id}"), KeyboardButtonColor.NEGATIVE)
+            keyboard.add(Text("❌ Нет"), KeyboardButtonColor.SECONDARY)
             
             await message.answer(
-                "⚠️ Отмена менее чем за 2 часа!\n"
-                "🚫 Вы заблокированы на 24 часа.\n"
-                "⭐ Ваш рейтинг снижен."
+                f"⚠️ ВНИМАНИЕ! До поездки менее 2 часов.\n\n"
+                f"При отмене:\n"
+                f"• Ваш рейтинг будет снижен (оценка 1⭐)\n"
+                f"• Вы будете заблокированы на 24 часа\n\n"
+                f"Вы уверены, что хотите отменить бронирование?",
+                keyboard=keyboard.get_json()
             )
+            return
         
-        if booking.status == BookingStatus.accepted:
-            trip.seats_available += 1
+        # Если больше 2 часов — отмена без штрафа
+        await perform_cancel(session, booking, trip, user, message)
+
+async def confirm_cancel_booking(message: Message):
+    """Второй шаг — подтверждение отмены со штрафом"""
+    booking_id = int(message.text.split()[-1])
+    user_id = message.from_id
+    
+    async for session in get_session():
+        booking = await get_booking_by_id(session, booking_id)
+        if not booking:
+            await message.answer("❌ Бронирование не найдено")
+            return
         
-        booking.status = BookingStatus.cancelled
-        await session.commit()
+        user = await get_user_by_vk_id(session, user_id)
+        trip = await get_trip_by_id(session, booking.trip_id)
         
-        if driver:
-            from handlers.menu import send_notification
-            await send_notification(
-                driver.vk_id,
-                f"❌ Пассажир отменил бронирование.\n\n"
-                f"🚗 {trip.route_from} → {trip.route_to}\n"
-                f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
-                f"👤 Пассажир: {user.first_name} {user.last_name}\n"
-                f"💺 Свободных мест: {trip.seats_available}/{trip.seats_total}"
-            )
+        # Применяем штраф
+        user.banned_until = datetime.now(timezone.utc) + timedelta(hours=24)
         
+        penalty = Rating(
+            booking_id=booking.id,
+            from_user_id=user.id,
+            to_user_id=user.id,
+            value=1
+        )
+        session.add(penalty)
+        
+        await update_user_rating(session, user.id)
+        
+        await perform_cancel(session, booking, trip, user, message, penalty_applied=True)
+
+async def perform_cancel(session, booking, trip, user, message, penalty_applied=False):
+    """Выполняет отмену бронирования"""
+    if booking.status == BookingStatus.accepted:
+        trip.seats_available += 1
+    
+    booking.status = BookingStatus.cancelled
+    
+    # Уведомляем водителя
+    driver = await get_user_by_id(session, trip.driver_id)
+    if driver:
+        from handlers.menu import send_notification
+        await send_notification(
+            driver.vk_id,
+            f"❌ Пассажир отменил бронирование.\n\n"
+            f"🚗 {trip.route_from} → {trip.route_to}\n"
+            f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
+            f"👤 Пассажир: {user.first_name} {user.last_name}\n"
+            f"💺 Свободных мест: {trip.seats_available}/{trip.seats_total}"
+        )
+    
+    await session.commit()
+    
+    if penalty_applied:
+        await message.answer(
+            "✅ Бронирование отменено\n"
+            "⚠️ Применены штрафные санкции:\n"
+            "• Рейтинг снижен (оценка 1⭐)\n"
+            "• Блокировка бронирования на 24 часа",
+            keyboard=main_menu_keyboard()
+        )
+    else:
         await message.answer("✅ Бронирование отменено", keyboard=main_menu_keyboard())
-        logger.info(f"Booking {booking_id} cancelled by passenger")
+    
+    logger.info(f"Booking {booking.id} cancelled by passenger (penalty={penalty_applied})")
 
 async def subscriptions_handler(message: Message):
     """Показывает активные подписки пассажира"""
