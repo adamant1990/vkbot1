@@ -14,11 +14,24 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
 
   bot:
     build: .
     environment:
       - DATABASE_URL=postgresql+asyncpg://poputchik:secret@db:5432/poputchik
+      - REDIS_URL=redis://redis:6379/0
       - VK_GROUP_TOKEN=${VK_GROUP_TOKEN}
       - YANDEX_API_KEY=${YANDEX_API_KEY}
       - ADMIN_IDS=${ADMIN_IDS}
@@ -26,9 +39,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./logs:/app/logs
     restart: unless-stopped
 
 volumes:
   postgres_data:
+  redis_data:
