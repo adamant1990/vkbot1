@@ -1,13 +1,13 @@
 import datetime
 from sqlalchemy import select, and_
 from db import async_session_maker
-from models import Trip, TripStatus, Booking, BookingStatus, User, Subscription
+from models import Trip, TripStatus, Booking, BookingStatus, User, Subscription, PendingRating
 from loguru import logger
 from vkbottle import API
 from config import settings
 
 async def complete_trips_and_request_ratings():
-    """Завершает поездки через 24 часа, запрашивает оценки и чистит старые подписки"""
+    """Завершает поездки через 24 часа, сохраняет ожидающие оценки и чистит старые подписки"""
     logger.info("Scheduler: checking trips to complete...")
     
     async with async_session_maker() as session:
@@ -47,12 +47,11 @@ async def complete_trips_and_request_ratings():
         
         logger.info(f"Scheduler: completing {len(trips_to_complete)} trips")
         
-        api = API(token=settings.VK_GROUP_TOKEN)
-        
         for trip in trips_to_complete:
             trip.status = TripStatus.completed
             logger.info(f"Trip {trip.id} marked as completed")
             
+            # Получаем подтвержденных пассажиров
             bookings_result = await session.execute(
                 select(Booking).where(
                     and_(
@@ -63,38 +62,35 @@ async def complete_trips_and_request_ratings():
             )
             accepted_bookings = bookings_result.scalars().all()
             
+            # Получаем водителя
             driver = await session.get(User, trip.driver_id)
             
             if driver:
                 for booking in accepted_bookings:
                     passenger = await session.get(User, booking.passenger_id)
                     if passenger:
-                        try:
-                            from handlers.menu import send_rating_request
-                            await send_rating_request(
-                                user_id=driver.vk_id,
-                                trip_id=booking.id,
-                                target_id=passenger.id,
-                                target_name=f"{passenger.first_name} {passenger.last_name}"
-                            )
-                            logger.info(f"Rating request sent to driver {driver.vk_id} for passenger {passenger.id}")
-                        except Exception as e:
-                            logger.error(f"Failed to send rating request to driver: {e}")
+                        # Сохраняем ожидающую оценку для водителя
+                        pending = PendingRating(
+                            from_user_vk_id=driver.vk_id,
+                            to_user_id=passenger.id,
+                            trip_id=booking.id,
+                            target_name=f"{passenger.first_name} {passenger.last_name}"
+                        )
+                        session.add(pending)
+                        logger.info(f"Pending rating saved for driver {driver.vk_id} -> passenger {passenger.id}")
             
             for booking in accepted_bookings:
                 passenger = await session.get(User, booking.passenger_id)
-                if passenger:
-                    try:
-                        from handlers.menu import send_rating_request
-                        await send_rating_request(
-                            user_id=passenger.vk_id,
-                            trip_id=booking.id,
-                            target_id=driver.id if driver else None,
-                            target_name=f"{driver.first_name} {driver.last_name}" if driver else "водитель"
-                        )
-                        logger.info(f"Rating request sent to passenger {passenger.vk_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send rating request to passenger: {e}")
+                if passenger and driver:
+                    # Сохраняем ожидающую оценку для пассажира
+                    pending = PendingRating(
+                        from_user_vk_id=passenger.vk_id,
+                        to_user_id=driver.id,
+                        trip_id=booking.id,
+                        target_name=f"{driver.first_name} {driver.last_name}"
+                    )
+                    session.add(pending)
+                    logger.info(f"Pending rating saved for passenger {passenger.vk_id} -> driver {driver.id}")
         
         await session.commit()
         logger.info(f"Scheduler: completed {len(trips_to_complete)} trips")
