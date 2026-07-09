@@ -19,11 +19,11 @@ class SearchState(BaseStateGroup):
 
 SEARCH_RESULTS_PER_PAGE = 3
 
-def safe_delete(key: str):
+async def safe_delete(key: str):
     """Безопасное удаление ключа из хранилища"""
     try:
-        ctx.delete(key)
-    except KeyError:
+        await ctx.delete(key)
+    except Exception:
         pass
 
 def parse_route(text: str):
@@ -105,7 +105,7 @@ async def search_trip_handler(message: Message):
     """Начинает поиск поездки"""
     user_id = message.from_id
     
-    safe_delete(f"search_results_{user_id}")
+    await safe_delete(f"search_results_{user_id}")
     
     async for session in get_session():
         user = await get_user_by_vk_id(session, user_id)
@@ -129,7 +129,7 @@ async def search_trip_handler(message: Message):
         "🔍 Введите маршрут в формате: ГородОтправления-ГородНазначения\n"
         "Например: Туймазы-Уфа или Туймазы Уфа"
     )
-    ctx.set(f"search_state_{user_id}", SearchState.WAITING_ROUTE)
+    await ctx.set(f"search_state_{user_id}", SearchState.WAITING_ROUTE)
 
 async def process_search_route(message: Message):
     """Обрабатывает маршрут для поиска"""
@@ -145,8 +145,8 @@ async def process_search_route(message: Message):
         )
         return
     
-    ctx.set(f"search_from_{user_id}", route_from)
-    ctx.set(f"search_to_{user_id}", route_to)
+    await ctx.set(f"search_from_{user_id}", route_from)
+    await ctx.set(f"search_to_{user_id}", route_to)
     
     keyboard = build_calendar_keyboard()
     await message.answer(
@@ -154,7 +154,7 @@ async def process_search_route(message: Message):
         "📅 Выберите дату поездки:",
         keyboard=keyboard.get_json()
     )
-    ctx.set(f"search_state_{user_id}", SearchState.WAITING_DATE)
+    await ctx.set(f"search_state_{user_id}", SearchState.WAITING_DATE)
 
 async def process_search_calendar_date(message: Message):
     """Обрабатывает выбор даты из календаря при поиске"""
@@ -166,18 +166,18 @@ async def process_search_calendar_date(message: Message):
             "📅 Введите дату в формате ДД.ММ.ГГГГ:\n"
             "Например: 25.12.2024"
         )
-        ctx.set(f"search_state_{user_id}", SearchState.WAITING_MANUAL_DATE)
+        await ctx.set(f"search_state_{user_id}", SearchState.WAITING_MANUAL_DATE)
         return
     
     if text == "🔙 Отмена":
-        safe_delete(f"search_state_{user_id}")
+        await safe_delete(f"search_state_{user_id}")
         from handlers.menu import send_main_menu
         await send_main_menu(message)
         return
     
     selected_date = parse_calendar_date(text)
     if selected_date:
-        ctx.set(f"search_date_{user_id}", selected_date)
+        await ctx.set(f"search_date_{user_id}", selected_date)
         
         keyboard = Keyboard(inline=False)
         keyboard.add(Text("📅 По дате"), KeyboardButtonColor.PRIMARY)
@@ -193,7 +193,7 @@ async def process_search_calendar_date(message: Message):
             "Выберите сортировку:",
             keyboard=keyboard.get_json()
         )
-        ctx.set(f"search_state_{user_id}", SearchState.WAITING_SORT)
+        await ctx.set(f"search_state_{user_id}", SearchState.WAITING_SORT)
     else:
         await process_search_manual_date(message)
 
@@ -207,7 +207,7 @@ async def process_search_manual_date(message: Message):
             await message.answer("❌ Дата не может быть в прошлом")
             return
         
-        ctx.set(f"search_date_{user_id}", date)
+        await ctx.set(f"search_date_{user_id}", date)
         
         keyboard = Keyboard(inline=False)
         keyboard.add(Text("📅 По дате"), KeyboardButtonColor.PRIMARY)
@@ -223,7 +223,7 @@ async def process_search_manual_date(message: Message):
             "Выберите сортировку:",
             keyboard=keyboard.get_json()
         )
-        ctx.set(f"search_state_{user_id}", SearchState.WAITING_SORT)
+        await ctx.set(f"search_state_{user_id}", SearchState.WAITING_SORT)
     except ValueError:
         await message.answer("❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ")
 
@@ -232,14 +232,14 @@ async def process_sort_and_search(message: Message):
     user_id = message.from_id
     sort_text = message.text.strip()
     
-    route_from = ctx.get(f"search_from_{user_id}")
-    route_to = ctx.get(f"search_to_{user_id}")
-    search_date = ctx.get(f"search_date_{user_id}")
+    route_from = await ctx.get(f"search_from_{user_id}")
+    route_to = await ctx.get(f"search_to_{user_id}")
+    search_date = await ctx.get(f"search_date_{user_id}")
     
     if not all([route_from, route_to, search_date]):
         await message.answer("❌ Произошла ошибка. Начните поиск заново.")
-        safe_delete(f"search_state_{user_id}")
-        safe_delete(f"search_results_{user_id}")
+        await safe_delete(f"search_state_{user_id}")
+        await safe_delete(f"search_results_{user_id}")
         return
     
     await message.answer("🔍 Ищу подходящие поездки, включая промежуточные города...")
@@ -301,20 +301,20 @@ async def process_sort_and_search(message: Message):
                 "Хотите подписаться на уведомления?",
                 keyboard=keyboard.get_json()
             )
-            safe_delete(f"search_state_{user_id}")
+            await safe_delete(f"search_state_{user_id}")
             return
         
-        ctx.set(f"search_results_{user_id}", {
+        await ctx.set(f"search_results_{user_id}", {
             'trips': matching_trips,
             'page': 0
         })
-        safe_delete(f"search_state_{user_id}")
+        await safe_delete(f"search_state_{user_id}")
         
         await show_search_page(message, user_id, 0)
 
 async def show_search_page(message: Message, user_id: int, page: int):
     """Показывает страницу результатов поиска"""
-    search_data = ctx.get(f"search_results_{user_id}")
+    search_data = await ctx.get(f"search_results_{user_id}")
     
     if not search_data:
         await message.answer("❌ Результаты поиска устарели. Начните заново.")
@@ -369,12 +369,12 @@ async def show_search_page(message: Message, user_id: int, page: int):
         )
     
     search_data['page'] = page
-    ctx.set(f"search_results_{user_id}", search_data)
+    await ctx.set(f"search_results_{user_id}", search_data)
 
 async def handle_search_navigation(message: Message):
     """Обрабатывает навигацию по страницам поиска"""
     user_id = message.from_id
-    search_data = ctx.get(f"search_results_{user_id}")
+    search_data = await ctx.get(f"search_results_{user_id}")
     
     if not search_data:
         return
@@ -507,7 +507,7 @@ async def handle_search_action(message: Message):
                 except Exception as e:
                     logger.error(f"Failed to send booking notification to driver: {e}")
             
-            safe_delete(f"search_results_{user_id}")
+            await safe_delete(f"search_results_{user_id}")
             
             await message.answer(
                 "✅ Заявка на бронирование отправлена!\n"
@@ -517,9 +517,9 @@ async def handle_search_action(message: Message):
             logger.info(f"Booking created: trip={trip_id}, passenger={user_id}")
     
     elif "Подписаться" in text:
-        route_from = ctx.get(f"search_from_{user_id}")
-        route_to = ctx.get(f"search_to_{user_id}")
-        search_date = ctx.get(f"search_date_{user_id}")
+        route_from = await ctx.get(f"search_from_{user_id}")
+        route_to = await ctx.get(f"search_to_{user_id}")
+        search_date = await ctx.get(f"search_date_{user_id}")
         
         if not route_from or not route_to:
             await message.answer("❌ Данные поиска устарели. Начните заново.")
@@ -529,9 +529,4 @@ async def handle_search_action(message: Message):
             user = await get_user_by_vk_id(session, user_id)
             
             subscription = Subscription(
-                user_id=user.id,
-                route_from=route_from,
-                route_to=route_to,
-                date=search_date
-            )
-            session.ad
+       
