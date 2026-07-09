@@ -9,6 +9,7 @@ from utils.db_utils import get_user_by_vk_id, update_user_rating
 from config import settings
 from sqlalchemy import select, and_
 from storage import ctx
+from datetime import datetime, timezone
 
 class RegistrationState(BaseStateGroup):
     WAITING_NAME = 1
@@ -58,6 +59,14 @@ async def start_handler(message: Message):
             )
             ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_NAME)
         else:
+            # Проверка временной блокировки
+            if user.banned_until and user.banned_until > datetime.now(timezone.utc):
+                await message.answer(
+                    f"🚫 Вы временно заблокированы до {user.banned_until.strftime('%d.%m.%Y %H:%M')} (МСК) "
+                    f"из-за отмены бронирования менее чем за 2 часа."
+                )
+                return
+            
             if user.rating is not None:
                 rating_text = f"Ваш рейтинг: {user.rating:.1f}⭐"
             else:
@@ -376,7 +385,6 @@ async def process_rating(message: Message):
         return
     
     async for session in get_session():
-        # Ищем ожидающую оценку в БД (PendingRating)
         result = await session.execute(
             select(PendingRating).where(PendingRating.from_user_vk_id == user_vk_id).limit(1)
         )
@@ -417,8 +425,6 @@ async def process_rating(message: Message):
             value=rating_value
         )
         session.add(rating)
-        
-        # Удаляем ожидающую оценку
         await session.delete(pending)
         await session.commit()
         
