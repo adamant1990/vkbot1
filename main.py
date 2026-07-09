@@ -70,7 +70,6 @@ async def run_scheduler():
             await complete_trips_and_request_ratings()
         except Exception as e:
             logger.error(f"Ошибка планировщика: {e}")
-            # Ждём 5 минут перед повторной попыткой после ошибки
             await asyncio.sleep(300)
 
 async def state_router(message: Message):
@@ -137,8 +136,9 @@ async def state_router(message: Message):
         
         create_state = await ctx.get(f"create_trip_{user_id}")
         if create_state is not None:
-            logger.info(f"Processing create state: {create_state}")
+            logger.info(f"Processing create state: {create_state}, type: {type(create_state)}, WAITING_ROUTE={CreateTripState.WAITING_ROUTE}, equal: {create_state == CreateTripState.WAITING_ROUTE}")
             if create_state == CreateTripState.WAITING_ROUTE:
+                logger.info("Calling process_route...")
                 await process_route(message)
             elif create_state == CreateTripState.WAITING_DATE:
                 await process_calendar_date(message)
@@ -154,6 +154,8 @@ async def state_router(message: Message):
                 await process_comment(message)
             elif create_state == CreateTripState.WAITING_PUBLISH:
                 await process_publish(message)
+            else:
+                logger.warning(f"Unknown create state: {create_state}")
             return True
         
         search_state = await ctx.get(f"search_state_{user_id}")
@@ -178,11 +180,9 @@ async def state_router(message: Message):
 async def main():
     logger.add(settings.LOG_FILE, rotation="10 MB", retention="7 days", level="INFO")
     
-    # Инициализируем БД
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
-    # Прогреваем Redis
     try:
         r = await get_redis()
         await r.ping()
@@ -318,7 +318,6 @@ async def main():
         if not handled:
             await send_main_menu(message)
 
-    # Запускаем планировщик как фоновую задачу
     scheduler_task = asyncio.create_task(run_scheduler())
 
     try:
