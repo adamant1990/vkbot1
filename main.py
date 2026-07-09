@@ -64,7 +64,7 @@ async def run_scheduler():
     from scheduler_process import complete_trips_and_request_ratings
     logger.info("Планировщик запущен (фоновая задача)")
     while True:
-        await asyncio.sleep(1800)  # 30 минут
+        await asyncio.sleep(1800)
         try:
             await complete_trips_and_request_ratings()
         except Exception as e:
@@ -74,37 +74,30 @@ async def state_router(message: Message):
     """Маршрутизирует сообщения в зависимости от активного состояния"""
     user_id = message.from_id
     
-    # Проверяем состояние поиска пользователей (админ)
     if ctx.get(f"admin_users_search_input_{user_id}"):
         await process_users_search(message)
         return True
     
-    # Проверяем состояние смены рейтинга (админ)
     if ctx.get(f"admin_change_rating_{user_id}"):
         await process_change_rating(message)
         return True
     
-    # Проверяем состояние рассылки (админ)
     if ctx.get(f"admin_broadcast_{user_id}"):
         await process_broadcast(message)
         return True
     
-    # Проверяем состояние смены тарифа (админ)
     if ctx.get(f"admin_change_tariff_{user_id}"):
         await process_new_tariff(message)
         return True
     
-    # Проверяем состояние смены коэффициента (админ)
     if ctx.get(f"admin_change_coefficient_{user_id}"):
         await process_new_coefficient(message)
         return True
     
-    # Проверяем состояние смены угла (админ)
     if ctx.get(f"admin_change_angle_{user_id}"):
         await process_new_angle(message)
         return True
     
-    # Проверяем состояние оценки (рейтинг)
     rating_state = ctx.get(f"rating_state_{user_id}")
     if rating_state is not None:
         logger.info(f"Processing rating state: {rating_state}")
@@ -112,7 +105,6 @@ async def state_router(message: Message):
             await process_rating(message)
             return True
     
-    # Проверяем состояния редактирования профиля
     edit_state = ctx.get(f"edit_state_{user_id}")
     if edit_state is not None:
         logger.info(f"Processing edit state: {edit_state}")
@@ -126,7 +118,6 @@ async def state_router(message: Message):
             await process_edit_phone(message)
         return True
     
-    # Проверяем состояния регистрации
     reg_state = ctx.get(f"reg_state_{user_id}")
     if reg_state is not None:
         logger.info(f"Processing reg state: {reg_state}")
@@ -140,7 +131,6 @@ async def state_router(message: Message):
             await process_phone(message)
         return True
     
-    # Проверяем состояния создания поездки
     create_state = ctx.get(f"create_trip_{user_id}")
     if create_state is not None:
         logger.info(f"Processing create state: {create_state}")
@@ -162,7 +152,6 @@ async def state_router(message: Message):
             await process_publish(message)
         return True
     
-    # Проверяем состояния поиска
     search_state = ctx.get(f"search_state_{user_id}")
     if search_state is not None:
         logger.info(f"Processing search state: {search_state}")
@@ -181,13 +170,11 @@ async def state_router(message: Message):
 async def main():
     logger.add(settings.LOG_FILE, rotation="10 MB", retention="7 days", level="INFO")
     
-    # Создаём таблицы
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     bot = Bot(token=settings.VK_GROUP_TOKEN)
 
-    # Точные совпадения
     exact_matches = {
         "Начать": start_handler,
         "Меню": send_main_menu,
@@ -245,7 +232,6 @@ async def main():
     for text, handler in exact_matches.items():
         bot.on.message(text=text)(handler)
 
-    # Самый последний обработчик
     @bot.on.message()
     async def catch_all(message: Message):
         user_id = message.from_id
@@ -253,7 +239,6 @@ async def main():
         
         logger.info(f"CATCH_ALL: '{text}' from {user_id}")
         
-        # ДИАГНОСТИКА
         if text == "!debug":
             user = None
             async for session in get_session():
@@ -269,12 +254,17 @@ async def main():
             await message.answer(info)
             return
         
-        # Админ-панель по команде
+        if text == "!ctx":
+            info = f"rating_trip={ctx.get(f'rating_trip_{user_id}')}\n"
+            info += f"rating_target={ctx.get(f'rating_target_{user_id}')}\n"
+            info += f"rating_state={ctx.get(f'rating_state_{user_id}')}"
+            await message.answer(info)
+            return
+        
         if text == "!admin" or text == "/admin":
             await admin_handler(message)
             return
         
-        # Управление пользователями (админ)
         if "Забанить" in text or "Разбанить" in text:
             await ban_user_handler(message)
             return
@@ -285,13 +275,11 @@ async def main():
             await reset_rating_handler(message)
             return
         
-        # Действия поиска
         if "Обсудить" in text or "Бронировать" in text:
             logger.info("→ handle_search_action")
             await handle_search_action(message)
             return
         
-        # Действия водителя
         if "Удалить" in text and "Да" not in text:
             await delete_trip_handler(message)
             return
@@ -302,7 +290,6 @@ async def main():
             await handle_booking_response(message)
             return
         
-        # Действия пассажира
         if "Отменить" in text:
             await cancel_booking_handler(message)
             return
@@ -310,16 +297,13 @@ async def main():
             await unsubscribe_handler(message)
             return
         
-        # Очищаем старые результаты поиска
         safe_delete_ctx(f"search_results_{user_id}")
         
-        # Пробуем обработать состояние
         handled = await state_router(message)
         
         if not handled:
             await send_main_menu(message)
 
-    # Запуск планировщика как фоновой задачи
     asyncio.create_task(run_scheduler())
 
     try:
