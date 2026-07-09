@@ -12,11 +12,12 @@ async def my_bookings_menu_handler(message: Message):
     """Показывает меню раздела бронирований"""
     keyboard = Keyboard(inline=False)
     keyboard.add(Text("📌 Мои бронирования"), KeyboardButtonColor.PRIMARY)
+    keyboard.row()
     keyboard.add(Text("🔔 Активные подписки"), KeyboardButtonColor.PRIMARY)
     keyboard.row()
     keyboard.add(Text("🔙 В меню"), KeyboardButtonColor.SECONDARY)
     
-    await message.answer("📌 Бронирования и подписки:", keyboard=keyboard.get_json())
+    await message.answer("🧑 ЛК Пассажира:", keyboard=keyboard.get_json())
 
 async def my_bookings_handler(message: Message):
     """Показывает активные бронирования пассажира"""
@@ -90,7 +91,6 @@ async def cancel_booking_handler(message: Message):
         booking.status = BookingStatus.cancelled
         await session.commit()
         
-        # Уведомляем водителя об отмене
         if driver:
             from handlers.menu import send_notification
             await send_notification(
