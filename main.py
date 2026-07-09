@@ -16,7 +16,8 @@ from handlers.menu import (
     start_handler, send_main_menu, ctx, RegistrationState, EditProfileState, RatingState,
     process_name, process_age, process_gender, process_phone,
     edit_profile_handler, process_edit_choice, process_edit_name,
-    process_edit_age, process_edit_phone, process_rating
+    process_edit_age, process_edit_phone, process_rating,
+    check_pending_ratings
 )
 from handlers.profile import profile_handler
 from handlers.trips import (
@@ -238,6 +239,10 @@ async def main():
         text = message.text.strip()
         
         logger.info(f"CATCH_ALL: '{text}' from {user_id}")
+        
+        # Проверка ожидающих оценок (самое первое!)
+        if await check_pending_ratings(user_id):
+            return
         
         if text == "!debug":
             user = None
