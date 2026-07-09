@@ -37,7 +37,8 @@ from handlers.my_trips_driver import (
 )
 from handlers.my_bookings_passenger import (
     my_bookings_menu_handler, my_bookings_handler,
-    cancel_booking_handler, subscriptions_handler, unsubscribe_handler
+    cancel_booking_handler, confirm_cancel_booking,
+    subscriptions_handler, unsubscribe_handler
 )
 from handlers.support import support_handler
 from handlers.admin import (
@@ -273,17 +274,20 @@ async def main():
             await handle_search_action(message)
             return
         
-        if "Удалить" in text and "Да" not in text:
+        if "Удалить" in text and "Да" not in text and "⚠️" not in text:
             await delete_trip_handler(message)
             return
         if "Да, удалить" in text:
             await confirm_delete_trip(message)
             return
+        if "⚠️ Да, отменить" in text:
+            await confirm_cancel_booking(message)
+            return
         if "Принять" in text or "Отклонить" in text:
             await handle_booking_response(message)
             return
         
-        if "Отменить" in text:
+        if "Отменить" in text and "⚠️" not in text:
             await cancel_booking_handler(message)
             return
         if "Отписаться" in text:
