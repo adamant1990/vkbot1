@@ -46,7 +46,7 @@ class Trip(Base):
     seats_available = Column(Integer, default=1)
     price = Column(Integer, default=0)
     comment = Column(Text, nullable=True)
-    distance = Column(Float, nullable=True)  # расстояние в км
+    distance = Column(Float, nullable=True)
     status = Column(Enum(TripStatus), default=TripStatus.active)
     publish_on_wall = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -83,6 +83,16 @@ class Rating(Base):
     from_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     to_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     value = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class PendingRating(Base):
+    """Ожидающие оценки для отправки пользователям"""
+    __tablename__ = "pending_ratings"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    from_user_vk_id = Column(Integer, nullable=False)
+    to_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    trip_id = Column(Integer, ForeignKey("trips.id"), nullable=False)
+    target_name = Column(String(100))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Settings(Base):
