@@ -29,6 +29,9 @@ class RedisStorage:
         try:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
+            # Пробуем преобразовать в int
+            if isinstance(value, str) and value.isdigit():
+                return int(value)
             return value
     
     async def set(self, key: str, value, expire: int = 3600):
@@ -36,6 +39,8 @@ class RedisStorage:
         r = await self._get_redis()
         if isinstance(value, (dict, list, tuple)):
             value = json.dumps(value, default=str)
+        elif isinstance(value, bool):
+            value = str(value)
         await r.set(self._make_key(key), value, ex=expire)
     
     async def delete(self, key: str):
