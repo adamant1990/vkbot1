@@ -3,7 +3,7 @@ from vkbottle.bot import Message
 from keyboards import main_menu_keyboard
 from db import get_session
 from models import User, Trip, TripStatus, Subscription
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from loguru import logger
 from vkbottle import Keyboard, Text, KeyboardButtonColor
 from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_setting
@@ -120,6 +120,13 @@ async def create_trip_handler(message: Message):
         
         if user.is_banned:
             await message.answer("❌ Ваш аккаунт заблокирован")
+            return
+        
+        if user.banned_until and user.banned_until > datetime.now(timezone.utc):
+            await message.answer(
+                f"🚫 Вы временно заблокированы до {user.banned_until.strftime('%d.%m.%Y %H:%M')} (МСК) "
+                f"из-за отмены бронирования менее чем за 2 часа."
+            )
             return
     
     await message.answer(
@@ -413,10 +420,8 @@ async def process_publish(message: Message):
         if publish_on_wall:
             try:
                 api = API(token=settings.VK_GROUP_TOKEN)
-                
                 groups_response = await api.groups.get_by_id()
                 group_id = -abs(groups_response.groups[0].id)
-                logger.info(f"Publishing to wall, group_id: {group_id}")
                 
                 wall_text = (
                     f"🚗 Новая поездка!\n\n"
@@ -434,14 +439,9 @@ async def process_publish(message: Message):
                     f"📩 Забронировать место: напишите в сообщения группы «Найти поездку»"
                 )
                 
-                result = await api.wall.post(
-                    owner_id=group_id,
-                    message=wall_text,
-                    from_group=1
-                )
+                result = await api.wall.post(owner_id=group_id, message=wall_text, from_group=1)
                 logger.info(f"Wall post published! Post ID: {result.post_id}")
                 wall_published = True
-                
             except Exception as e:
                 logger.error(f"Failed to publish on wall: {type(e).__name__}: {e}")
         
