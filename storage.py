@@ -47,6 +47,14 @@ class RedisStorage:
                 return datetime.fromisoformat(value)
             except (ValueError, TypeError):
                 pass
+        # Если словарь — пробуем восстановить datetime в полях
+        if isinstance(value, dict):
+            for k, v in value.items():
+                if isinstance(v, str):
+                    try:
+                        value[k] = datetime.fromisoformat(v)
+                    except (ValueError, TypeError):
+                        pass
         return value
     
     async def set(self, key: str, value, expire: int = 3600):
