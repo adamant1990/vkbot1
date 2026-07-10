@@ -242,11 +242,21 @@ async def process_sort_and_search(message: Message):
         await safe_delete(f"search_results_{user_id}")
         return
     
+    # Приводим search_date к datetime, если пришла строка
+    if isinstance(search_date, str):
+        try:
+            search_date = datetime.fromisoformat(search_date)
+        except (ValueError, TypeError):
+            await message.answer("❌ Ошибка формата даты. Начните поиск заново.")
+            return
+    
     await message.answer("🔍 Ищу подходящие поездки, включая промежуточные города...")
     
     async for session in get_session():
         date_start = search_date.replace(hour=0, minute=0, second=0)
         date_end = search_date.replace(hour=23, minute=59, second=59)
+        
+        user = await get_user_by_vk_id(session, user_id)
         
         query = select(Trip, User).join(
             User, Trip.driver_id == User.id
@@ -255,7 +265,8 @@ async def process_sort_and_search(message: Message):
                 Trip.status == TripStatus.active,
                 Trip.departure_time >= date_start,
                 Trip.departure_time <= date_end,
-                Trip.seats_available > 0
+                Trip.seats_available > 0,
+                Trip.driver_id != user.id  # Исключаем свои поездки
             )
         )
         
@@ -269,9 +280,6 @@ async def process_sort_and_search(message: Message):
         result = await session.execute(query)
         all_trips = result.all()
         
-        max_angle_str = await get_setting(session, "max_angle", "110")
-        max_angle = int(max_angle_str)
-        
         matching_trips = []
         
         from utils.yandex_routing import check_intermediate_route
@@ -281,14 +289,17 @@ async def process_sort_and_search(message: Message):
                 trip.route_to.lower() == route_to.lower()):
                 matching_trips.append((trip, driver))
             else:
-                is_on_route = await check_intermediate_route(
-                    route_from, route_to,
-                    trip.route_from, trip.route_to,
-                    max_detour_km=80,
-                    max_angle=max_angle
-                )
-                if is_on_route:
-                    matching_trips.append((trip, driver))
+                try:
+                    is_on_route = await check_intermediate_route(
+                        route_from, route_to,
+                        trip.route_from, trip.route_to,
+                        max_detour_km=80,
+                        max_angle=int(await get_setting(session, "max_angle", "110"))
+                    )
+                    if is_on_route:
+                        matching_trips.append((trip, driver))
+                except Exception as e:
+                    logger.error(f"check_intermediate_route failed: {e}")
         
         if not matching_trips:
             keyboard = Keyboard(inline=False)
@@ -301,14 +312,31 @@ async def process_sort_and_search(message: Message):
                 "Хотите подписаться на уведомления?",
                 keyboard=keyboard.get_json()
             )
-            await safe_delete(f"search_state_{user_id}")
+            # Оставляем search_state для повторной сортировки
             return
         
+        # Сохраняем только ID поездок и водителей, а не объекты
+        trip_ids = []
+        for trip, driver in matching_trips:
+            trip_ids.append({
+                'trip_id': trip.id,
+                'driver_vk_id': driver.vk_id,
+                'route_from': trip.route_from,
+                'route_to': trip.route_to,
+                'departure_time': trip.departure_time.isoformat() if trip.departure_time else None,
+                'seats_available': trip.seats_available,
+                'seats_total': trip.seats_total,
+                'price': trip.price,
+                'comment': trip.comment,
+                'driver_name': f"{driver.first_name} {driver.last_name}",
+                'driver_rating': driver.rating
+            })
+        
         await ctx.set(f"search_results_{user_id}", {
-            'trips': matching_trips,
+            'trips': trip_ids,
             'page': 0
         })
-        await safe_delete(f"search_state_{user_id}")
+        # Оставляем search_state для повторной сортировки
         
         await show_search_page(message, user_id, 0)
 
@@ -331,25 +359,30 @@ async def show_search_page(message: Message, user_id: int, page: int):
         return
     
     for i in range(start_idx, end_idx):
-        trip, driver = trips[i]
+        trip_data = trips[i]
         
-        rating_str = f"{driver.rating:.1f}⭐" if driver.rating else "Нет оценок"
+        rating_str = f"{trip_data['driver_rating']:.1f}⭐" if trip_data['driver_rating'] else "Нет оценок"
+        
+        # Парсим departure_time из строки
+        dep_time = trip_data['departure_time']
+        if isinstance(dep_time, str):
+            dep_time = datetime.fromisoformat(dep_time)
         
         trip_info = (
-            f"🚗 Поездка #{trip.id}\n"
-            f"👤 Водитель: {driver.first_name} {driver.last_name}\n"
+            f"🚗 Поездка #{trip_data['trip_id']}\n"
+            f"👤 Водитель: {trip_data['driver_name']}\n"
             f"⭐ Рейтинг: {rating_str}\n"
-            f"📍 Маршрут: {trip.route_from} → {trip.route_to}\n"
-            f"📅 Дата: {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
-            f"💺 Свободно мест: {trip.seats_available}/{trip.seats_total}\n"
-            f"💰 Цена: {trip.price}₽\n"
+            f"📍 Маршрут: {trip_data['route_from']} → {trip_data['route_to']}\n"
+            f"📅 Дата: {dep_time.strftime('%d.%m.%Y %H:%M')}\n"
+            f"💺 Свободно мест: {trip_data['seats_available']}/{trip_data['seats_total']}\n"
+            f"💰 Цена: {trip_data['price']}₽\n"
         )
-        if trip.comment:
-            trip_info += f"💬 Комментарий: {trip.comment}\n"
+        if trip_data['comment']:
+            trip_info += f"💬 Комментарий: {trip_data['comment']}\n"
         
         keyboard = Keyboard(inline=True)
-        keyboard.add(Text(f"💬 Обсудить {trip.id}"), KeyboardButtonColor.PRIMARY)
-        keyboard.add(Text(f"✅ Бронировать {trip.id}"), KeyboardButtonColor.POSITIVE)
+        keyboard.add(Text(f"💬 Обсудить {trip_data['trip_id']}"), KeyboardButtonColor.PRIMARY)
+        keyboard.add(Text(f"✅ Бронировать {trip_data['trip_id']}"), KeyboardButtonColor.POSITIVE)
         
         await message.answer(trip_info, keyboard=keyboard.get_json())
     
@@ -438,7 +471,6 @@ async def handle_search_action(message: Message):
         async for session in get_session():
             user = await get_user_by_vk_id(session, user_id)
             
-            # Проверка временной блокировки
             if user.banned_until and user.banned_until > datetime.now(timezone.utc):
                 await message.answer(
                     f"🚫 Вы временно заблокированы до {user.banned_until.strftime('%d.%m.%Y %H:%M')} (МСК) "
