@@ -7,7 +7,7 @@ from vkbottle import API, Keyboard, Text, KeyboardButtonColor
 from config import settings
 
 async def complete_trips_and_request_ratings():
-    """Завершает поездки через 24 часа, отправляет запросы оценок и чистит старые подписки"""
+    """Завершает поездки через 24 часа, отправляет запросы оценок, чистит старые подписки и бронирования"""
     logger.info("Scheduler: checking trips to complete...")
     
     async with async_session_maker() as session:
@@ -29,6 +29,26 @@ async def complete_trips_and_request_ratings():
                 await session.delete(sub)
             await session.commit()
             logger.info(f"Scheduler: cleaned {len(old_subs)} old subscriptions")
+        
+        # === Очистка старых бронирований ===
+        old_bookings_result = await session.execute(
+            select(Booking).join(
+                Trip, Booking.trip_id == Trip.id
+            ).where(
+                and_(
+                    Trip.status.in_([TripStatus.completed, TripStatus.cancelled]),
+                    Trip.departure_time < cutoff,
+                    Booking.status.in_([BookingStatus.pending, BookingStatus.accepted])
+                )
+            )
+        )
+        old_bookings = old_bookings_result.scalars().all()
+        if old_bookings:
+            for booking in old_bookings:
+                booking.status = BookingStatus.cancelled
+                logger.info(f"Scheduler: auto-cancelled old booking {booking.id}")
+            await session.commit()
+            logger.info(f"Scheduler: cleaned {len(old_bookings)} old bookings")
         
         # === Завершение поездок ===
         result = await session.execute(
