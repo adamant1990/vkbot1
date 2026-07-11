@@ -242,7 +242,6 @@ async def process_sort_and_search(message: Message):
         await safe_delete(f"search_results_{user_id}")
         return
     
-    # Приводим search_date к datetime, если пришла строка
     if isinstance(search_date, str):
         try:
             search_date = datetime.fromisoformat(search_date)
@@ -266,7 +265,7 @@ async def process_sort_and_search(message: Message):
                 Trip.departure_time >= date_start,
                 Trip.departure_time <= date_end,
                 Trip.seats_available > 0,
-                Trip.driver_id != user.id  # Исключаем свои поездки
+                Trip.driver_id != user.id
             )
         )
         
@@ -312,10 +311,8 @@ async def process_sort_and_search(message: Message):
                 "Хотите подписаться на уведомления?",
                 keyboard=keyboard.get_json()
             )
-            # Оставляем search_state для повторной сортировки
             return
         
-        # Сохраняем только ID поездок и водителей, а не объекты
         trip_ids = []
         for trip, driver in matching_trips:
             trip_ids.append({
@@ -329,14 +326,14 @@ async def process_sort_and_search(message: Message):
                 'price': trip.price,
                 'comment': trip.comment,
                 'driver_name': f"{driver.first_name} {driver.last_name}",
-                'driver_rating': driver.rating
+                'driver_rating': driver.rating,
+                'driver_rating_count': driver.rating_count,
             })
         
         await ctx.set(f"search_results_{user_id}", {
             'trips': trip_ids,
             'page': 0
         })
-        # Оставляем search_state для повторной сортировки
         
         await show_search_page(message, user_id, 0)
 
@@ -361,9 +358,12 @@ async def show_search_page(message: Message, user_id: int, page: int):
     for i in range(start_idx, end_idx):
         trip_data = trips[i]
         
-        rating_str = f"{trip_data['driver_rating']:.1f}⭐" if trip_data['driver_rating'] else "Нет оценок"
+        if trip_data['driver_rating']:
+            count = trip_data.get('driver_rating_count', 0)
+            rating_str = f"{trip_data['driver_rating']:.1f}⭐ ({count} оцен.)"
+        else:
+            rating_str = "Нет оценок"
         
-        # Парсим departure_time из строки
         dep_time = trip_data['departure_time']
         if isinstance(dep_time, str):
             dep_time = datetime.fromisoformat(dep_time)
