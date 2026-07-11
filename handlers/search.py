@@ -360,7 +360,7 @@ async def show_search_page(message: Message, user_id: int, page: int):
         
         if trip_data['driver_rating']:
             count = trip_data.get('driver_rating_count', 0)
-            rating_str = f"{trip_data['driver_rating']:.1f}⭐ ({count} оцен.)"
+            rating_str = f"{trip_data['driver_rating']:.1f}⭐ ({count} оценок)"
         else:
             rating_str = "Нет оценок"
         
