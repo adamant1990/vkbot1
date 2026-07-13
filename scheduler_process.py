@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, delete
 from db import async_session_maker
 from models import Trip, TripStatus, Booking, BookingStatus, User, Subscription, PendingRating
 from loguru import logger
@@ -7,7 +7,7 @@ from vkbottle import API, Keyboard, Text, KeyboardButtonColor
 from config import settings
 
 async def complete_trips_and_request_ratings():
-    """Завершает поездки через 24 часа, отправляет запросы оценок, чистит старые подписки и бронирования"""
+    """Завершает поездки через 24 часа, отправляет запросы оценок, чистит старые подписки, бронирования и поездки"""
     logger.info("Scheduler: checking trips to complete...")
     
     async with async_session_maker() as session:
@@ -50,6 +50,27 @@ async def complete_trips_and_request_ratings():
             await session.commit()
             logger.info(f"Scheduler: cleaned {len(old_bookings)} old bookings")
         
+        # === Удаление завершённых поездок старше 30 дней ===
+        old_trips_cutoff = now - datetime.timedelta(days=30)
+        old_trips_result = await session.execute(
+            select(Trip).where(
+                and_(
+                    Trip.status.in_([TripStatus.completed, TripStatus.cancelled]),
+                    Trip.departure_time < old_trips_cutoff
+                )
+            )
+        )
+        old_trips = old_trips_result.scalars().all()
+        if old_trips:
+            for trip in old_trips:
+                # Удаляем связанные бронирования
+                await session.execute(
+                    delete(Booking).where(Booking.trip_id == trip.id)
+                )
+                await session.delete(trip)
+            await session.commit()
+            logger.info(f"Scheduler: deleted {len(old_trips)} old trips")
+        
         # === Завершение поездок ===
         result = await session.execute(
             select(Trip).where(
@@ -89,7 +110,6 @@ async def complete_trips_and_request_ratings():
                 for booking in accepted_bookings:
                     passenger = await session.get(User, booking.passenger_id)
                     if passenger:
-                        # Сохраняем PendingRating для БД
                         pending = PendingRating(
                             from_user_vk_id=driver.vk_id,
                             to_user_id=passenger.id,
@@ -99,7 +119,6 @@ async def complete_trips_and_request_ratings():
                         session.add(pending)
                         await session.commit()
                         
-                        # Отправляем запрос оценки водителю
                         try:
                             keyboard = Keyboard(inline=True)
                             keyboard.add(Text("1⭐"), KeyboardButtonColor.SECONDARY)
@@ -121,7 +140,6 @@ async def complete_trips_and_request_ratings():
             for booking in accepted_bookings:
                 passenger = await session.get(User, booking.passenger_id)
                 if passenger and driver:
-                    # Сохраняем PendingRating для БД
                     pending = PendingRating(
                         from_user_vk_id=passenger.vk_id,
                         to_user_id=driver.id,
@@ -131,7 +149,6 @@ async def complete_trips_and_request_ratings():
                     session.add(pending)
                     await session.commit()
                     
-                    # Отправляем запрос оценки пассажиру
                     try:
                         keyboard = Keyboard(inline=True)
                         keyboard.add(Text("1⭐"), KeyboardButtonColor.SECONDARY)
