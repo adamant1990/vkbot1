@@ -14,12 +14,12 @@ async def complete_trips_and_request_ratings():
         now = datetime.datetime.now(datetime.timezone.utc)
         cutoff = now - datetime.timedelta(hours=24)
         
-        # === Очистка старых подписок ===
+        # === Очистка старых подписок (через 24 часа после даты поездки) ===
         old_subs_result = await session.execute(
             select(Subscription).where(
                 and_(
                     Subscription.date.isnot(None),
-                    Subscription.date < now.replace(tzinfo=None)
+                    Subscription.date < (now - datetime.timedelta(hours=24)).replace(tzinfo=None)
                 )
             )
         )
@@ -63,7 +63,6 @@ async def complete_trips_and_request_ratings():
         old_trips = old_trips_result.scalars().all()
         if old_trips:
             for trip in old_trips:
-                # Удаляем связанные бронирования
                 await session.execute(
                     delete(Booking).where(Booking.trip_id == trip.id)
                 )
