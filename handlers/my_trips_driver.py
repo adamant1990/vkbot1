@@ -32,7 +32,7 @@ async def active_trips_handler(message: Message):
                     Trip.driver_id == user.id,
                     Trip.status == TripStatus.active
                 )
-            ).order_by(Trip.departure_time)
+            ).order_by(Trip.departure_time.desc())
         )
         trips = result.scalars().all()
         
