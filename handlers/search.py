@@ -560,6 +560,24 @@ async def handle_search_action(message: Message):
         async for session in get_session():
             user = await get_user_by_vk_id(session, user_id)
             
+            # Проверяем, нет ли уже такой подписки
+            existing_sub = await session.execute(
+                select(Subscription).where(
+                    and_(
+                        Subscription.user_id == user.id,
+                        Subscription.route_from == route_from,
+                        Subscription.route_to == route_to,
+                        Subscription.date == search_date
+                    )
+                )
+            )
+            if existing_sub.scalar():
+                await message.answer(
+                    "❌ У вас уже есть подписка на этот маршрут и дату!",
+                    keyboard=main_menu_keyboard()
+                )
+                return
+            
             subscription = Subscription(
                 user_id=user.id,
                 route_from=route_from,
