@@ -4,9 +4,13 @@ import hashlib
 from loguru import logger
 from cachetools import TTLCache
 import math
+import asyncio
 
-# Кэш на 7 дней
-route_cache = TTLCache(maxsize=1000, ttl=7*24*3600)
+# Кэш на 30 дней (координаты городов не меняются)
+route_cache = TTLCache(maxsize=2000, ttl=30*24*3600)
+
+# Семафор: максимум 5 одновременных запросов к Яндекс API
+_yandex_semaphore = asyncio.Semaphore(5)
 
 async def geocode(city: str) -> tuple[float, float] | None:
     """Возвращает координаты города через Яндекс Геокодер"""
@@ -14,33 +18,34 @@ async def geocode(city: str) -> tuple[float, float] | None:
     if cache_key in route_cache:
         return route_cache[cache_key]
     
-    try:
-        url = "https://geocode-maps.yandex.ru/1.x/"
-        params = {
-            "apikey": settings.YANDEX_API_KEY,
-            "geocode": city,
-            "format": "json",
-            "results": 1
-        }
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, params=params, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-            
-            feature_members = data["response"]["GeoObjectCollection"]["featureMember"]
-            if not feature_members:
-                logger.warning(f"City not found: {city}")
-                return None
-            
-            pos = feature_members[0]["GeoObject"]["Point"]["pos"]
-            lon, lat = map(float, pos.split())
-            coords = (lat, lon)
-            route_cache[cache_key] = coords
-            return coords
-            
-    except Exception as e:
-        logger.error(f"Geocode failed for '{city}': {e}")
-        return None
+    async with _yandex_semaphore:
+        try:
+            url = "https://geocode-maps.yandex.ru/1.x/"
+            params = {
+                "apikey": settings.YANDEX_API_KEY,
+                "geocode": city,
+                "format": "json",
+                "results": 1
+            }
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, params=params, timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
+                
+                feature_members = data["response"]["GeoObjectCollection"]["featureMember"]
+                if not feature_members:
+                    logger.warning(f"City not found: {city}")
+                    return None
+                
+                pos = feature_members[0]["GeoObject"]["Point"]["pos"]
+                lon, lat = map(float, pos.split())
+                coords = (lat, lon)
+                route_cache[cache_key] = coords
+                return coords
+                
+        except Exception as e:
+            logger.error(f"Geocode failed for '{city}': {e}")
+            return None
 
 
 def haversine_distance(coord1: tuple, coord2: tuple) -> float:
