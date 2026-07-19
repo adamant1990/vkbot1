@@ -19,6 +19,7 @@ async def geocode(city: str) -> tuple[float, float] | None:
         return route_cache[cache_key]
     
     async with _yandex_semaphore:
+        await asyncio.sleep(0)  # Даём семафору синхронизироваться
         try:
             url = "https://geocode-maps.yandex.ru/1.x/"
             params = {
