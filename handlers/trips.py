@@ -445,7 +445,7 @@ async def process_publish(message: Message):
                     wall_text += f"📏 Расстояние: {distance:.0f} км\n"
                 wall_text += (
                     f"\n👤 Водитель: {user.first_name} {user.last_name}\n"
-                    f"📩 Забронировать место: напишите в сообщения группы «Найти поездку»"
+                    f"🔗 Забронировать: https://vk.com/write-{settings.GROUP_ID}?ref=trip_{trip.id}\n"
                 )
                 
                 result = await api.wall.post(owner_id=group_id, message=wall_text, from_group=1)
