@@ -2,10 +2,10 @@ from vkbottle import BaseStateGroup
 from vkbottle.bot import Message
 from keyboards import main_menu_keyboard
 from db import get_session
-from models import User, Rating, PendingRating
+from models import User, Rating, PendingRating, Trip, TripStatus
 from loguru import logger
 from vkbottle import Keyboard, Text, KeyboardButtonColor, API
-from utils.db_utils import get_user_by_vk_id, update_user_rating
+from utils.db_utils import get_user_by_vk_id, update_user_rating, get_trip_by_id, get_user_by_id
 from config import settings
 from sqlalchemy import select, and_
 from storage import ctx
@@ -201,6 +201,30 @@ async def process_phone(message: Message):
                 f"Добро пожаловать в «Попутчик»! 🚗",
                 keyboard=main_menu_keyboard()
             )
+            
+            # Проверяем, был ли переход по глубокой ссылке
+            ref = await ctx.get(f"pending_ref_{user_id}")
+            if ref and ref.startswith("trip_"):
+                trip_id = int(ref.split("_")[1])
+                await ctx.delete(f"pending_ref_{user_id}")
+                trip = await get_trip_by_id(session, trip_id)
+                if trip and trip.status == TripStatus.active:
+                    driver = await get_user_by_id(session, trip.driver_id)
+                    if driver:
+                        rating_str = f"{driver.rating:.1f}⭐ ({driver.rating_count} оценок)" if driver.rating else "Нет оценок"
+                        keyboard = Keyboard(inline=True)
+                        keyboard.add(Text(f"💬 Обсудить {trip.id}"), KeyboardButtonColor.PRIMARY)
+                        keyboard.add(Text(f"✅ Бронировать {trip.id}"), KeyboardButtonColor.POSITIVE)
+                        await message.answer(
+                            f"🚗 Поездка по ссылке:\n"
+                            f"👤 Водитель: {driver.first_name} {driver.last_name}\n"
+                            f"⭐ Рейтинг: {rating_str}\n"
+                            f"📍 {trip.route_from} → {trip.route_to}\n"
+                            f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
+                            f"💰 {trip.price}₽\n"
+                            f"💺 Мест: {trip.seats_available}/{trip.seats_total}",
+                            keyboard=keyboard.get_json()
+                        )
     
     await ctx.delete(f"reg_state_{user_id}")
     await ctx.delete(f"reg_first_name_{user_id}")
