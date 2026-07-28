@@ -64,6 +64,7 @@ async def active_trips_handler(message: Message):
             
             keyboard = Keyboard(inline=True)
             keyboard.add(Text(f"🗑 Удалить {trip.id}"), KeyboardButtonColor.NEGATIVE)
+            keyboard.add(Text(f"🔗 Поделиться {trip.id}"), KeyboardButtonColor.SECONDARY)
             
             await message.answer(trip_info, keyboard=keyboard.get_json())
 
