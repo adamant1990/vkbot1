@@ -34,6 +34,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - VK_GROUP_TOKEN=${VK_GROUP_TOKEN}
       - YANDEX_API_KEY=${YANDEX_API_KEY}
+      - GROUP_ID=${GROUP_ID}
       - ADMIN_IDS=${ADMIN_IDS}
       - LOG_FILE=/app/logs/bot.log
     depends_on:
