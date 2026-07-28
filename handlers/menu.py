@@ -202,11 +202,15 @@ async def process_phone(message: Message):
                 keyboard=main_menu_keyboard()
             )
             
-            # Проверяем, был ли переход по глубокой ссылке
-            ref = await ctx.get(f"pending_ref_{user_id}")
-            if ref and ref.startswith("trip_"):
-                trip_id = int(ref.split("_")[1])
-                await ctx.delete(f"pending_ref_{user_id}")
+            # Проверяем, был ли переход по ссылке на поездку
+            trip_id = await ctx.get(f"pending_trip_{user_id}")
+            if not trip_id:
+                ref = await ctx.get(f"pending_ref_{user_id}")
+                if ref and ref.startswith("trip_"):
+                    trip_id = int(ref.split("_")[1])
+                    await ctx.delete(f"pending_ref_{user_id}")
+            if trip_id:
+                await ctx.delete(f"pending_trip_{user_id}")
                 trip = await get_trip_by_id(session, trip_id)
                 if trip and trip.status == TripStatus.active:
                     driver = await get_user_by_id(session, trip.driver_id)
