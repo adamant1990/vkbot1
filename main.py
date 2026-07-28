@@ -4,8 +4,9 @@ from vkbottle import Bot
 from vkbottle.bot import Message
 from config import settings
 from db import engine, get_session, get_redis, close_db, close_redis
-from models import Base
+from models import Base, TripStatus
 from loguru import logger
+from vkbottle import Keyboard, Text, KeyboardButtonColor
 
 # Отключаем DEBUG логи
 logging.getLogger("vkbottle.dispatch").setLevel(logging.WARNING)
@@ -201,9 +202,6 @@ async def main():
         "🔙 В админ-панель": admin_handler,
         "🔙 К настройкам": price_settings_handler,
         "🔍 Найти поездку": search_trip_handler,
-        "📅 По дате": process_sort_and_search,
-        "💰 По цене": process_sort_and_search,
-        "⭐ По рейтингу": process_sort_and_search,
         "⬅ Назад": users_navigation_handler,
         "Вперёд ➡": users_navigation_handler,
         "🔔 Подписаться на маршрут": handle_search_action,
@@ -254,6 +252,43 @@ async def main():
         user_id = message.from_id
         text = message.text.strip()
         
+        # Обработка глубокой ссылки
+        ref = message.ref if hasattr(message, 'ref') else None
+        if ref and ref.startswith("trip_"):
+            trip_id = int(ref.split("_")[1])
+            async for session in get_session():
+                from utils.db_utils import get_user_by_vk_id, get_trip_by_id, get_user_by_id
+                user = await get_user_by_vk_id(session, user_id)
+                if not user:
+                    await ctx.set(f"pending_ref_{user_id}", ref)
+                    await message.answer(
+                        "👋 Добро пожаловать! Сначала зарегистрируйтесь.\n"
+                        "Введите ваше имя и фамилию (например: Иван Иванов):"
+                    )
+                    await ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_NAME)
+                    return
+                trip = await get_trip_by_id(session, trip_id)
+                if trip and trip.status == TripStatus.active:
+                    driver = await get_user_by_id(session, trip.driver_id)
+                    if driver:
+                        rating_str = f"{driver.rating:.1f}⭐ ({driver.rating_count} оценок)" if driver.rating else "Нет оценок"
+                        keyboard = Keyboard(inline=True)
+                        keyboard.add(Text(f"💬 Обсудить {trip.id}"), KeyboardButtonColor.PRIMARY)
+                        keyboard.add(Text(f"✅ Бронировать {trip.id}"), KeyboardButtonColor.POSITIVE)
+                        await message.answer(
+                            f"🚗 Поездка #{trip.id}\n"
+                            f"👤 Водитель: {driver.first_name} {driver.last_name}\n"
+                            f"⭐ Рейтинг: {rating_str}\n"
+                            f"📍 {trip.route_from} → {trip.route_to}\n"
+                            f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
+                            f"💰 {trip.price}₽\n"
+                            f"💺 Мест: {trip.seats_available}/{trip.seats_total}",
+                            keyboard=keyboard.get_json()
+                        )
+                        return
+                await message.answer("❌ Поездка не найдена или уже неактивна.")
+                return
+        
         logger.info(f"CATCH_ALL: '{text}' from {user_id}")
         
         if text == "!debug":
@@ -273,6 +308,17 @@ async def main():
         
         if text == "!admin" or text == "/admin":
             await admin_handler(message)
+            return
+        
+        if "Поделиться" in text:
+            trip_id = int(text.split()[-1])
+            link = f"https://vk.com/write-{settings.GROUP_ID}?ref=trip_{trip_id}"
+            await message.answer(
+                f"🔗 Ссылка на поездку:\n{link}\n\n"
+                "Скопируйте и отправьте друзьям!\n"
+                "При переходе по ссылке откроется чат с ботом и карточка поездки.",
+                keyboard=main_menu_keyboard()
+            )
             return
         
         if "Забанить" in text or "Разбанить" in text:
