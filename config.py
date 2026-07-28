@@ -8,7 +8,6 @@ class Settings(BaseSettings):
     VK_GROUP_TOKEN: str = os.getenv("VK_GROUP_TOKEN", "")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///trips.db")
     YANDEX_API_KEY: str = os.getenv("YANDEX_API_KEY", "")
-    GROUP_ID: str = os.getenv("GROUP_ID", "239123837")
     ADMIN_IDS: str = os.getenv("ADMIN_IDS", "")
     LOG_FILE: str = os.getenv("LOG_FILE", "logs/bot.log")
 
