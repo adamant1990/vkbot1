@@ -252,7 +252,46 @@ async def main():
         user_id = message.from_id
         text = message.text.strip()
         
-        # Обработка глубокой ссылки
+        # Обработка сообщения с ID поездки из ссылки
+        if text.startswith("Поездка "):
+            try:
+                trip_id = int(text.split()[-1])
+                async for session in get_session():
+                    from utils.db_utils import get_user_by_vk_id, get_trip_by_id, get_user_by_id
+                    user = await get_user_by_vk_id(session, user_id)
+                    if not user:
+                        await ctx.set(f"pending_trip_{user_id}", trip_id)
+                        await message.answer(
+                            "👋 Добро пожаловать! Сначала зарегистрируйтесь.\n"
+                            "Введите ваше имя и фамилию (например: Иван Иванов):"
+                        )
+                        await ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_NAME)
+                        return
+                    trip = await get_trip_by_id(session, trip_id)
+                    if trip and trip.status == TripStatus.active:
+                        driver = await get_user_by_id(session, trip.driver_id)
+                        if driver:
+                            rating_str = f"{driver.rating:.1f}⭐ ({driver.rating_count} оценок)" if driver.rating else "Нет оценок"
+                            keyboard = Keyboard(inline=True)
+                            keyboard.add(Text(f"💬 Обсудить {trip.id}"), KeyboardButtonColor.PRIMARY)
+                            keyboard.add(Text(f"✅ Бронировать {trip.id}"), KeyboardButtonColor.POSITIVE)
+                            await message.answer(
+                                f"🚗 Поездка #{trip.id}\n"
+                                f"👤 Водитель: {driver.first_name} {driver.last_name}\n"
+                                f"⭐ Рейтинг: {rating_str}\n"
+                                f"📍 {trip.route_from} → {trip.route_to}\n"
+                                f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
+                                f"💰 {trip.price}₽\n"
+                                f"💺 Мест: {trip.seats_available}/{trip.seats_total}",
+                                keyboard=keyboard.get_json()
+                            )
+                            return
+                    await message.answer("❌ Поездка не найдена или уже неактивна.")
+                    return
+            except (ValueError, IndexError):
+                pass
+        
+        # Обработка глубокой ссылки (старый формат)
         ref = message.ref if hasattr(message, 'ref') else None
         if ref and ref.startswith("trip_"):
             trip_id = int(ref.split("_")[1])
@@ -312,11 +351,11 @@ async def main():
         
         if "Поделиться" in text:
             trip_id = int(text.split()[-1])
-            link = f"https://vk.com/write-{settings.GROUP_ID}?ref=trip_{trip_id}"
+            link = f"https://vk.com/im?sel=-{settings.GROUP_ID}&msg=Поездка {trip_id}"
             await message.answer(
                 f"🔗 Ссылка на поездку:\n{link}\n\n"
                 "Скопируйте и отправьте друзьям!\n"
-                "При переходе по ссылке откроется чат с ботом и карточка поездки.",
+                "При переходе по ссылке откроется чат с ботом.",
                 keyboard=main_menu_keyboard()
             )
             return
