@@ -182,15 +182,11 @@ async def main():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
-    # Прогреваем Redis и очищаем старые состояния
+    # Прогреваем Redis без удаления пользовательских состояний.
+    # Состояния хранятся в Redis с TTL и должны переживать перезапуск бота.
     try:
         r = await get_redis()
         await r.ping()
-        # Очищаем старые состояния при старте
-        keys = await r.keys("ctx:*state_*")
-        if keys:
-            await r.delete(*keys)
-            logger.info(f"Очищено {len(keys)} старых состояний")
         logger.info("Redis подключён успешно")
     except Exception as e:
         logger.error(f"Redis недоступен: {e}")
