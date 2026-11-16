@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import select, and_, delete
+from sqlalchemy import select, and_
 from db import async_session_maker
 from models import Trip, TripStatus, Booking, BookingStatus, User, Subscription, PendingRating
 from loguru import logger
@@ -7,14 +7,15 @@ from vkbottle import API, Keyboard, Text, KeyboardButtonColor
 from config import settings
 
 async def complete_trips_and_request_ratings():
-    """Завершает поездки через 24 часа, отправляет запросы оценок, чистит старые подписки, бронирования и поездки"""
+    """Завершает поездки, создаёт запросы оценок и очищает только безопасные временные данные."""
     logger.info("Scheduler: checking trips to complete...")
-    
+    notifications = []
+
     async with async_session_maker() as session:
         now = datetime.datetime.now(datetime.timezone.utc)
         cutoff = now - datetime.timedelta(hours=24)
-        
-        # === Очистка старых подписок (через 24 часа после даты поездки) ===
+
+        # Удаляем только старые подписки. Историю поездок, броней и оценок сохраняем.
         old_subs_result = await session.execute(
             select(Subscription).where(
                 and_(
@@ -24,13 +25,13 @@ async def complete_trips_and_request_ratings():
             )
         )
         old_subs = old_subs_result.scalars().all()
+        for sub in old_subs:
+            await session.delete(sub)
         if old_subs:
-            for sub in old_subs:
-                await session.delete(sub)
-            await session.commit()
             logger.info(f"Scheduler: cleaned {len(old_subs)} old subscriptions")
-        
-        # === Очистка старых бронирований ===
+
+        # Старые незавершённые заявки закрываем, но сами записи броней не удаляем:
+        # на них могут ссылаться сохранённые оценки.
         old_bookings_result = await session.execute(
             select(Booking).join(
                 Trip, Booking.trip_id == Trip.id
@@ -43,34 +44,13 @@ async def complete_trips_and_request_ratings():
             )
         )
         old_bookings = old_bookings_result.scalars().all()
-        if old_bookings:
-            for booking in old_bookings:
-                booking.status = BookingStatus.cancelled
-                logger.info(f"Scheduler: auto-cancelled old booking {booking.id}")
-            await session.commit()
-            logger.info(f"Scheduler: cleaned {len(old_bookings)} old bookings")
-        
-        # === Удаление завершённых поездок старше 30 дней ===
-        old_trips_cutoff = now - datetime.timedelta(days=30)
-        old_trips_result = await session.execute(
-            select(Trip).where(
-                and_(
-                    Trip.status.in_([TripStatus.completed, TripStatus.cancelled]),
-                    Trip.departure_time < old_trips_cutoff
-                )
-            )
-        )
-        old_trips = old_trips_result.scalars().all()
-        if old_trips:
-            for trip in old_trips:
-                await session.execute(
-                    delete(Booking).where(Booking.trip_id == trip.id)
-                )
-                await session.delete(trip)
-            await session.commit()
-            logger.info(f"Scheduler: deleted {len(old_trips)} old trips")
-        
-        # === Завершение поездок ===
+        for booking in old_bookings:
+            booking.status = BookingStatus.cancelled
+            logger.info(f"Scheduler: auto-cancelled old booking {booking.id}")
+
+        # Не удаляем старые поездки и брони физически: ratings.booking_id имеет FK
+        # на bookings, а pending_ratings.trip_id — FK на trips.
+
         result = await session.execute(
             select(Trip).where(
                 and_(
@@ -80,90 +60,90 @@ async def complete_trips_and_request_ratings():
             )
         )
         trips_to_complete = result.scalars().all()
-        
+
         if not trips_to_complete:
+            await session.commit()
             logger.info("Scheduler: no trips to complete")
             return
-        
+
         logger.info(f"Scheduler: completing {len(trips_to_complete)} trips")
-        
-        api = API(token=settings.VK_GROUP_TOKEN)
-        
+
         for trip in trips_to_complete:
             trip.status = TripStatus.completed
             logger.info(f"Trip {trip.id} marked as completed")
-            
+
             bookings_result = await session.execute(
                 select(Booking).where(
                     and_(
                         Booking.trip_id == trip.id,
                         Booking.status == BookingStatus.accepted
                     )
-                )
+                ).order_by(Booking.id)
             )
             accepted_bookings = bookings_result.scalars().all()
-            
             driver = await session.get(User, trip.driver_id)
-            
-            if driver:
-                for booking in accepted_bookings:
-                    passenger = await session.get(User, booking.passenger_id)
-                    if passenger:
-                        pending = PendingRating(
-                            from_user_vk_id=driver.vk_id,
-                            to_user_id=passenger.id,
-                            trip_id=booking.id,
-                            target_name=f"{passenger.first_name} {passenger.last_name}"
-                        )
-                        session.add(pending)
-                        await session.commit()
-                        
-                        try:
-                            keyboard = Keyboard(inline=True)
-                            keyboard.add(Text("1⭐"), KeyboardButtonColor.SECONDARY)
-                            keyboard.add(Text("2⭐"), KeyboardButtonColor.SECONDARY)
-                            keyboard.add(Text("3⭐"), KeyboardButtonColor.SECONDARY)
-                            keyboard.add(Text("4⭐"), KeyboardButtonColor.SECONDARY)
-                            keyboard.add(Text("5⭐"), KeyboardButtonColor.SECONDARY)
-                            
-                            await api.messages.send(
-                                peer_ids=str(driver.vk_id),
-                                message=f"⭐ Оцените поездку с {passenger.first_name} {passenger.last_name} (от 1 до 5):",
-                                keyboard=keyboard.get_json(),
-                                random_id=0
-                            )
-                            logger.info(f"Rating request sent to driver {driver.vk_id} for passenger {passenger.id}")
-                        except Exception as e:
-                            logger.error(f"Failed to send rating request to driver: {e}")
-            
+
+            if not driver:
+                continue
+
             for booking in accepted_bookings:
                 passenger = await session.get(User, booking.passenger_id)
-                if passenger and driver:
-                    pending = PendingRating(
-                        from_user_vk_id=passenger.vk_id,
-                        to_user_id=driver.id,
-                        trip_id=booking.id,
-                        target_name=f"{driver.first_name} {driver.last_name}"
+                if not passenger:
+                    continue
+
+                # В PendingRating.trip_id хранится именно ID поездки, как требует FK.
+                rating_targets = [
+                    (driver.vk_id, passenger.id, f"{passenger.first_name} {passenger.last_name}",
+                     driver.vk_id, f"Оцените поездку с {passenger.first_name} {passenger.last_name}"),
+                    (passenger.vk_id, driver.id, f"{driver.first_name} {driver.last_name}",
+                     passenger.vk_id, f"Оцените поездку с {driver.first_name} {driver.last_name}")
+                ]
+
+                for from_vk_id, to_user_id, target_name, recipient_vk_id, prompt in rating_targets:
+                    existing = await session.execute(
+                        select(PendingRating.id).where(
+                            PendingRating.from_user_vk_id == from_vk_id,
+                            PendingRating.to_user_id == to_user_id,
+                            PendingRating.trip_id == trip.id
+                        ).limit(1)
                     )
-                    session.add(pending)
-                    await session.commit()
-                    
-                    try:
-                        keyboard = Keyboard(inline=True)
-                        keyboard.add(Text("1⭐"), KeyboardButtonColor.SECONDARY)
-                        keyboard.add(Text("2⭐"), KeyboardButtonColor.SECONDARY)
-                        keyboard.add(Text("3⭐"), KeyboardButtonColor.SECONDARY)
-                        keyboard.add(Text("4⭐"), KeyboardButtonColor.SECONDARY)
-                        keyboard.add(Text("5⭐"), KeyboardButtonColor.SECONDARY)
-                        
-                        await api.messages.send(
-                            peer_ids=str(passenger.vk_id),
-                            message=f"⭐ Оцените поездку с {driver.first_name} {driver.last_name} (от 1 до 5):",
-                            keyboard=keyboard.get_json(),
-                            random_id=0
-                        )
-                        logger.info(f"Rating request sent to passenger {passenger.vk_id} for driver {driver.id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send rating request to passenger: {e}")
-        
-        logger.info(f"Scheduler: completed {len(trips_to_complete)} trips")
+                    if existing.scalar_one_or_none() is not None:
+                        continue
+
+                    session.add(PendingRating(
+                        from_user_vk_id=from_vk_id,
+                        to_user_id=to_user_id,
+                        trip_id=trip.id,
+                        target_name=target_name
+                    ))
+                    notifications.append((recipient_vk_id, prompt, trip.id, to_user_id))
+
+        # Один COMMIT фиксирует статусы поездок и все ожидающие оценки,
+        # даже если у завершённой поездки не было подтверждённых броней.
+        await session.commit()
+
+    api = API(token=settings.VK_GROUP_TOKEN)
+    for recipient_vk_id, prompt, trip_id, target_id in notifications:
+        try:
+            keyboard = Keyboard(inline=True)
+            keyboard.add(Text("1⭐"), KeyboardButtonColor.SECONDARY)
+            keyboard.add(Text("2⭐"), KeyboardButtonColor.SECONDARY)
+            keyboard.add(Text("3⭐"), KeyboardButtonColor.SECONDARY)
+            keyboard.add(Text("4⭐"), KeyboardButtonColor.SECONDARY)
+            keyboard.add(Text("5⭐"), KeyboardButtonColor.SECONDARY)
+
+            await api.messages.send(
+                peer_ids=str(recipient_vk_id),
+                message=f"⭐ {prompt} (от 1 до 5):",
+                keyboard=keyboard.get_json(),
+                random_id=0
+            )
+            logger.info(
+                f"Rating request sent to {recipient_vk_id} for trip {trip_id}, target {target_id}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send rating request to {recipient_vk_id}: {e}")
+
+    logger.info(f"Scheduler: completed {len(trips_to_complete)} trips")
+
+
