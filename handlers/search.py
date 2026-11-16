@@ -470,21 +470,28 @@ async def handle_search_action(message: Message):
         
         async for session in get_session():
             user = await get_user_by_vk_id(session, user_id)
-            
+            if not user:
+                await message.answer("❌ Сначала зарегистрируйтесь!")
+                return
+
+            if user.is_banned:
+                await message.answer("❌ Ваш аккаунт заблокирован")
+                return
+
             if user.banned_until and user.banned_until > datetime.now(timezone.utc):
                 await message.answer(
-                    f"🚫 Вы временно заблокированы до {user.banned_until.strftime('%d.%m.%Y %H:%M')} (МСК) "
-                    f"из-за отмены бронирования менее чем за 2 часа."
+                    f"🚫 Вы временно заблокированы до {user.banned_until.strftime('%d.%m.%Y %H:%M')} "
+                    "из-за поздней отмены бронирования."
                 )
                 return
-            
+
             from utils.db_utils import get_trip_by_id
             trip = await get_trip_by_id(session, trip_id)
-            driver = await get_user_by_id(session, trip.driver_id)
-            
             if not trip or trip.status != TripStatus.active:
                 await message.answer("❌ Поездка недоступна")
                 return
+
+            driver = await get_user_by_id(session, trip.driver_id)
             
             if trip.driver_id == user.id:
                 await message.answer("❌ Вы не можете забронировать свою поездку")
