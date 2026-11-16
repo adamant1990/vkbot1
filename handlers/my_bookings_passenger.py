@@ -69,7 +69,10 @@ async def cancel_booking_handler(message: Message):
         return
 
     async for session in get_session():
-        booking = await get_booking_by_id(session, booking_id)
+        booking_result = await session.execute(
+            select(Booking).where(Booking.id == booking_id).with_for_update()
+        )
+        booking = booking_result.scalar_one_or_none()
         if not booking or booking.status not in [BookingStatus.pending, BookingStatus.accepted]:
             await message.answer("❌ Бронирование не найдено или уже обработано")
             return
