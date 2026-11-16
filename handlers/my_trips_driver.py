@@ -81,7 +81,10 @@ async def delete_trip_handler(message: Message):
             await message.answer("❌ Пользователь не найден")
             return
 
-        trip = await get_trip_by_id(session, trip_id)
+        trip_result = await session.execute(
+            select(Trip).where(Trip.id == trip_id).with_for_update()
+        )
+        trip = trip_result.scalar_one_or_none()
         if not trip or trip.driver_id != user.id:
             await message.answer("❌ Поездка не найдена")
             return
