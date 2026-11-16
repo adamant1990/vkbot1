@@ -9,7 +9,8 @@ from config import settings
 async def complete_trips_and_request_ratings():
     """Завершает поездки, создаёт запросы оценок и очищает только безопасные временные данные."""
     logger.info("Scheduler: checking trips to complete...")
-    notifications = []
+    notification_users = set()
+    notifications_to_send = []
 
     async with async_session_maker() as session:
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -116,20 +117,32 @@ async def complete_trips_and_request_ratings():
                         trip_id=trip.id,
                         target_name=target_name
                     ))
-                    notifications.append((recipient_vk_id, prompt, trip.id, to_user_id))
+                    notification_users.add(recipient_vk_id)
 
         # Один COMMIT фиксирует статусы поездок и все ожидающие оценки,
         # даже если у завершённой поездки не было подтверждённых броней.
         await session.commit()
 
+        # Для каждого человека отправляем именно самый ранний ожидающий запрос,
+        # а не случайную новую запись из очереди.
+        for recipient_vk_id in notification_users:
+            pending_result = await session.execute(
+                select(PendingRating)
+                .where(PendingRating.from_user_vk_id == recipient_vk_id)
+                .order_by(PendingRating.id.asc())
+                .limit(1)
+            )
+            pending = pending_result.scalar_one_or_none()
+            if pending:
+                notifications_to_send.append((
+                    recipient_vk_id,
+                    pending.target_name or "участника поездки",
+                    pending.trip_id,
+                    pending.to_user_id
+                ))
+
     api = API(token=settings.VK_GROUP_TOKEN)
-    notified_users = set()
-    for recipient_vk_id, prompt, trip_id, target_id in notifications:
-        # Одна активная кнопочная просьба на пользователя за раз.
-        # Следующий запрос отправит обработчик после сохранения текущей оценки.
-        if recipient_vk_id in notified_users:
-            continue
-        notified_users.add(recipient_vk_id)
+    for recipient_vk_id, target_name, trip_id, target_id in notifications_to_send:
         try:
             keyboard = Keyboard(inline=True)
             keyboard.add(Text("1⭐"), KeyboardButtonColor.SECONDARY)
@@ -140,7 +153,10 @@ async def complete_trips_and_request_ratings():
 
             await api.messages.send(
                 peer_ids=str(recipient_vk_id),
-                message=f"⭐ {prompt} (от 1 до 5):",
+                message=(
+                    f"⭐ Оцените поездку с {target_name} (от 1 до 5). "
+                    "Если у вас несколько оценок, запросы придут по очереди."
+                ),
                 keyboard=keyboard.get_json(),
                 random_id=0
             )
