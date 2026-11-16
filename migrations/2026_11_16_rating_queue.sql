@@ -21,9 +21,10 @@ SET
 FROM bookings AS booking
 JOIN trips AS trip ON trip.id = booking.trip_id
 JOIN users AS passenger ON passenger.id = booking.passenger_id
-JOIN users AS driver ON driver.id = trip.driver_id
-JOIN users AS sender ON sender.vk_id = pending.from_user_vk_id
-WHERE pending.trip_id = booking.id
+JOIN users AS driver ON driver.id = trip.driver_id,
+users AS sender
+WHERE sender.vk_id = pending.from_user_vk_id
+  AND pending.trip_id = booking.id
   AND (
       (pending.to_user_id = passenger.id AND sender.id = driver.id)
       OR
