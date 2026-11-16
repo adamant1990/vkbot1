@@ -1,10 +1,15 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Enum, Text
+from sqlalchemy import (
+    Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Enum, Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func
 import enum
 
+
 class Base(DeclarativeBase):
     pass
+
 
 # Enum для статусов
 class TripStatus(str, enum.Enum):
@@ -12,11 +17,13 @@ class TripStatus(str, enum.Enum):
     completed = "completed"
     cancelled = "cancelled"
 
+
 class BookingStatus(str, enum.Enum):
     pending = "pending"
     accepted = "accepted"
     rejected = "rejected"
     cancelled = "cancelled"
+
 
 class User(Base):
     __tablename__ = "users"
@@ -30,11 +37,12 @@ class User(Base):
     rating = Column(Float, default=None, nullable=True)
     rating_count = Column(Integer, default=0)
     is_banned = Column(Boolean, default=False)
-    banned_until = Column(DateTime(timezone=True), nullable=True)  # временная блокировка
+    banned_until = Column(DateTime(timezone=True), nullable=True)
 
     trips = relationship("Trip", back_populates="driver")
     bookings = relationship("Booking", back_populates="passenger")
     subscriptions = relationship("Subscription", back_populates="user")
+
 
 class Trip(Base):
     __tablename__ = "trips"
@@ -55,6 +63,7 @@ class Trip(Base):
     driver = relationship("User", back_populates="trips")
     bookings = relationship("Booking", back_populates="trip")
 
+
 class Booking(Base):
     __tablename__ = "bookings"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -67,6 +76,7 @@ class Booking(Base):
     trip = relationship("Trip", back_populates="bookings")
     passenger = relationship("User", back_populates="bookings")
 
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -77,8 +87,15 @@ class Subscription(Base):
 
     user = relationship("User", back_populates="subscriptions")
 
+
 class Rating(Base):
     __tablename__ = "ratings"
+    __table_args__ = (
+        UniqueConstraint(
+            "booking_id", "from_user_id", name="uq_ratings_booking_from_user"
+        ),
+    )
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False)
     from_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -86,15 +103,27 @@ class Rating(Base):
     value = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
 class PendingRating(Base):
-    """Ожидающие оценки для отправки пользователям"""
+    """Надёжная очередь запросов оценок, привязанная к конкретному бронированию."""
     __tablename__ = "pending_ratings"
+    __table_args__ = (
+        UniqueConstraint(
+            "booking_id", "from_user_id",
+            name="uq_pending_ratings_booking_from_user",
+        ),
+    )
+
     id = Column(Integer, primary_key=True, autoincrement=True)
-    from_user_vk_id = Column(Integer, nullable=False)
+    booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False)
+    from_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     to_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    trip_id = Column(Integer, ForeignKey("trips.id"), nullable=False)
     target_name = Column(String(100))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    last_error = Column(Text, nullable=True)
+
 
 class Settings(Base):
     __tablename__ = "settings"
