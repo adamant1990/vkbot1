@@ -2,7 +2,7 @@ from vkbottle.bot import Message
 from keyboards import main_menu_keyboard
 from db import get_session
 from models import Trip, TripStatus, User, Booking, BookingStatus
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, update
 from loguru import logger
 from vkbottle import Keyboard, Text, KeyboardButtonColor
 from utils.db_utils import get_user_by_vk_id, get_trip_by_id, get_booking_by_id, get_user_by_id
@@ -204,12 +204,12 @@ async def incoming_requests_handler(message: Message):
             await message.answer(request_info, keyboard=keyboard.get_json())
 
 async def handle_booking_response(message: Message):
-    """Обрабатывает решение по заявке (принять/отклонить) и уведомляет пассажира"""
+    """Обрабатывает решение по заявке и атомарно защищает количество мест."""
     text = message.text.strip()
     parts = text.split()
-    
+
     booking_id = int(parts[-1])
-    
+
     if "Принять" in text:
         action = "Принять"
     elif "Отклонить" in text:
@@ -217,30 +217,75 @@ async def handle_booking_response(message: Message):
     else:
         logger.warning(f"Неизвестное действие: {text}")
         return
-    
+
     async for session in get_session():
         booking = await get_booking_by_id(session, booking_id)
         if not booking or booking.status != BookingStatus.pending:
             await message.answer("❌ Заявка уже обработана")
             return
-        
+
         trip = await get_trip_by_id(session, booking.trip_id)
         user = await get_user_by_vk_id(session, message.from_id)
-        passenger = await get_user_by_id(session, booking.passenger_id)
-        
+
+        if not user:
+            await message.answer("❌ Пользователь не найден")
+            return
+
+        if not trip:
+            await message.answer("❌ Поездка больше не существует")
+            return
+
         if trip.driver_id != user.id:
             await message.answer("❌ Это не ваша поездка")
             return
-        
+
+        passenger = await get_user_by_id(session, booking.passenger_id)
+
         if action == "Принять":
-            if trip.seats_available <= 0:
-                await message.answer("❌ Нет свободных мест")
+            # Сначала атомарно переводим только ожидающую заявку в accepted.
+            # Если другой обработчик уже принял/отклонил её, обновится 0 строк.
+            booking_update = await session.execute(
+                update(Booking)
+                .where(
+                    Booking.id == booking_id,
+                    Booking.status == BookingStatus.pending
+                )
+                .values(status=BookingStatus.accepted)
+                .execution_options(synchronize_session=False)
+            )
+
+            if booking_update.rowcount != 1:
+                await session.rollback()
+                await message.answer("❌ Заявка уже обработана")
                 return
-            
-            booking.status = BookingStatus.accepted
-            trip.seats_available -= 1
+
+            # Списание места выполняется одним условным SQL UPDATE.
+            # База сама сериализует конкурирующие обновления одной поездки:
+            # последнее свободное место сможет получить только одна заявка.
+            seat_update = await session.execute(
+                update(Trip)
+                .where(
+                    Trip.id == booking.trip_id,
+                    Trip.driver_id == user.id,
+                    Trip.status == TripStatus.active,
+                    Trip.seats_available > 0
+                )
+                .values(seats_available=Trip.seats_available - 1)
+                .execution_options(synchronize_session=False)
+            )
+
+            if seat_update.rowcount != 1:
+                await session.rollback()
+                await message.answer(
+                    "❌ Поездка уже недоступна или свободных мест больше нет"
+                )
+                return
+
+            # Статус заявки и списание места фиксируются одной транзакцией.
             await session.commit()
-            
+            await session.refresh(booking)
+            await session.refresh(trip)
+
             if passenger:
                 from handlers.menu import send_notification
                 await send_notification(
@@ -252,14 +297,30 @@ async def handle_booking_response(message: Message):
                     f"👤 Водитель: {user.first_name} {user.last_name}\n\n"
                     f"💬 Свяжитесь с водителем для уточнения деталей."
                 )
-            
+
             await message.answer("✅ Заявка принята! Пассажир уведомлен.")
             logger.info(f"Booking {booking_id} accepted")
-        
+
         elif action == "Отклонить":
-            booking.status = BookingStatus.rejected
+            # Отклонение также делаем условным, чтобы параллельное принятие
+            # и отклонение одной заявки не перезаписали результат друг друга.
+            booking_update = await session.execute(
+                update(Booking)
+                .where(
+                    Booking.id == booking_id,
+                    Booking.status == BookingStatus.pending
+                )
+                .values(status=BookingStatus.rejected)
+                .execution_options(synchronize_session=False)
+            )
+
+            if booking_update.rowcount != 1:
+                await session.rollback()
+                await message.answer("❌ Заявка уже обработана")
+                return
+
             await session.commit()
-            
+
             if passenger:
                 from handlers.menu import send_notification
                 await send_notification(
@@ -269,6 +330,6 @@ async def handle_booking_response(message: Message):
                     f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n\n"
                     f"Попробуйте найти другую поездку в боте."
                 )
-            
+
             await message.answer("❌ Заявка отклонена. Пассажир уведомлен.")
             logger.info(f"Booking {booking_id} rejected")
