@@ -123,7 +123,13 @@ async def complete_trips_and_request_ratings():
         await session.commit()
 
     api = API(token=settings.VK_GROUP_TOKEN)
+    notified_users = set()
     for recipient_vk_id, prompt, trip_id, target_id in notifications:
+        # Одна активная кнопочная просьба на пользователя за раз.
+        # Следующий запрос отправит обработчик после сохранения текущей оценки.
+        if recipient_vk_id in notified_users:
+            continue
+        notified_users.add(recipient_vk_id)
         try:
             keyboard = Keyboard(inline=True)
             keyboard.add(Text("1⭐"), KeyboardButtonColor.SECONDARY)
