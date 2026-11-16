@@ -450,7 +450,7 @@ async def process_rating(message: Message):
                         and_(
                             Booking.trip_id == trip.id,
                             Booking.passenger_id == pending.to_user_id,
-                            Booking.status == BookingStatus.accepted
+                            Booking.status.in_([BookingStatus.accepted, BookingStatus.cancelled])
                         )
                     ).order_by(Booking.id.asc()).limit(1)
                 )
@@ -460,7 +460,7 @@ async def process_rating(message: Message):
                         and_(
                             Booking.trip_id == trip.id,
                             Booking.passenger_id == from_user.id,
-                            Booking.status == BookingStatus.accepted
+                            Booking.status.in_([BookingStatus.accepted, BookingStatus.cancelled])
                         )
                     ).order_by(Booking.id.asc()).limit(1)
                 )
