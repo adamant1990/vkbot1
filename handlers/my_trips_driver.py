@@ -5,7 +5,7 @@ from models import Trip, TripStatus, User, Booking, BookingStatus
 from sqlalchemy import select, and_, update
 from loguru import logger
 from vkbottle import Keyboard, Text, KeyboardButtonColor
-from utils.db_utils import get_user_by_vk_id, get_trip_by_id, get_booking_by_id, get_user_by_id
+from utils.db_utils import get_user_by_vk_id, get_trip_by_id, get_booking_by_id, get_user_by_id, apply_rating_penalty
 
 async def my_trips_menu_handler(message: Message):
     """Показывает меню раздела 'Мои поездки'"""
@@ -68,83 +68,140 @@ async def active_trips_handler(message: Message):
             await message.answer(trip_info, keyboard=keyboard.get_json())
 
 async def delete_trip_handler(message: Message):
-    """Удаляет поездку с проверками"""
-    trip_id = int(message.text.split()[-1])
-    
+    """Проверяет владельца поездки и предупреждает о штрафе при отмене подтверждённой поездки."""
+    try:
+        trip_id = int(message.text.split()[-1])
+    except (ValueError, IndexError):
+        await message.answer("❌ Не удалось определить номер поездки")
+        return
+
     async for session in get_session():
         user = await get_user_by_vk_id(session, message.from_id)
+        if not user:
+            await message.answer("❌ Пользователь не найден")
+            return
+
         trip = await get_trip_by_id(session, trip_id)
-        
         if not trip or trip.driver_id != user.id:
             await message.answer("❌ Поездка не найдена")
             return
-        
+        if trip.status != TripStatus.active:
+            await message.answer("❌ Эта поездка уже отменена или завершена")
+            return
+
         result = await session.execute(
             select(Booking).where(
                 and_(
                     Booking.trip_id == trip_id,
                     Booking.status == BookingStatus.accepted
                 )
-            )
+            ).order_by(Booking.id)
         )
         confirmed_bookings = result.scalars().all()
-        
+
         if confirmed_bookings:
             keyboard = Keyboard(inline=True)
             keyboard.add(Text(f"✅ Да, удалить {trip_id}"), KeyboardButtonColor.NEGATIVE)
             keyboard.add(Text("❌ Нет"), KeyboardButtonColor.SECONDARY)
-            
+
             await message.answer(
-                f"⚠️ У вас {len(confirmed_bookings)} подтвержденных пассажиров! "
-                "При отмене поездки ваш рейтинг снизится на 1 балл. Продолжить?",
+                f"⚠️ У поездки есть {len(confirmed_bookings)} подтверждённых пассажиров.\n"
+                "При отмене рейтинг водителя снизится на 1 балл. Продолжить?",
                 keyboard=keyboard.get_json()
             )
             return
-        
+
         await perform_delete_trip(session, trip, message, user)
 
+
 async def confirm_delete_trip(message: Message):
-    """Подтверждает удаление поездки со штрафом"""
-    trip_id = int(message.text.split()[-1])
-    
+    """Повторно проверяет поездку и применяет один штраф за её отмену."""
+    try:
+        trip_id = int(message.text.split()[-1])
+    except (ValueError, IndexError):
+        await message.answer("❌ Не удалось определить номер поездки")
+        return
+
     async for session in get_session():
         user = await get_user_by_vk_id(session, message.from_id)
-        trip = await get_trip_by_id(session, trip_id)
-        
-        if trip and trip.driver_id == user.id:
-            if user.rating is not None:
-                user.rating = max(0, user.rating - 1)
-            
-            await perform_delete_trip(session, trip, message, user)
+        if not user:
+            await message.answer("❌ Пользователь не найден")
+            return
 
-async def perform_delete_trip(session, trip, message, driver):
-    """Выполняет удаление поездки и уведомляет пассажиров"""
+        result = await session.execute(
+            select(Trip).where(Trip.id == trip_id).with_for_update()
+        )
+        trip = result.scalar_one_or_none()
+        if not trip or trip.driver_id != user.id:
+            await message.answer("❌ Поездка не найдена или принадлежит не вам")
+            return
+        if trip.status != TripStatus.active:
+            await message.answer("❌ Эта поездка уже обработана")
+            return
+
+        bookings_result = await session.execute(
+            select(Booking).where(
+                and_(
+                    Booking.trip_id == trip.id,
+                    Booking.status == BookingStatus.accepted
+                )
+            ).order_by(Booking.id)
+        )
+        confirmed_bookings = bookings_result.scalars().all()
+
+        penalty_applied = False
+        if confirmed_bookings:
+            penalty_applied = await apply_rating_penalty(
+                session, user.id, confirmed_bookings[0].id
+            )
+
+        await perform_delete_trip(
+            session, trip, message, user, penalty_applied=penalty_applied
+        )
+
+
+async def perform_delete_trip(session, trip, message, driver, penalty_applied=False):
+    """Отменяет поездку и брони в одной транзакции, уведомляет пассажиров после COMMIT."""
     result = await session.execute(
         select(Booking).where(Booking.trip_id == trip.id)
     )
     bookings = result.scalars().all()
-    
+
+    passengers_to_notify = []
     for booking in bookings:
         if booking.status == BookingStatus.accepted:
             passenger = await get_user_by_id(session, booking.passenger_id)
             if passenger:
-                from handlers.menu import send_notification
-                await send_notification(
-                    passenger.vk_id,
-                    f"❌ Поездка отменена водителем.\n\n"
-                    f"🚗 {trip.route_from} → {trip.route_to}\n"
-                    f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
-                    f"👤 Водитель: {driver.first_name} {driver.last_name}\n\n"
-                    f"Попробуйте найти другую поездку в боте."
-                )
-        
-        booking.status = BookingStatus.cancelled
-    
+                passengers_to_notify.append(passenger)
+        if booking.status in [BookingStatus.pending, BookingStatus.accepted]:
+            booking.status = BookingStatus.cancelled
+
     trip.status = TripStatus.cancelled
     await session.commit()
-    
-    await message.answer("✅ Поездка удалена", keyboard=main_menu_keyboard())
-    logger.info(f"Trip {trip.id} deleted by driver")
+
+    from handlers.menu import send_notification
+    for passenger in passengers_to_notify:
+        await send_notification(
+            passenger.vk_id,
+            f"❌ Поездка отменена водителем.\n\n"
+            f"🚗 {trip.route_from} → {trip.route_to}\n"
+            f"📅 {trip.departure_time.strftime('%d.%m.%Y %H:%M')}\n"
+            f"👤 Водитель: {driver.first_name} {driver.last_name}\n\n"
+            "Попробуйте найти другую поездку в боте."
+        )
+
+    if penalty_applied:
+        await message.answer(
+            "✅ Поездка отменена. Рейтинг снижен на 1 балл за отмену подтверждённой поездки.",
+            keyboard=main_menu_keyboard()
+        )
+    else:
+        await message.answer("✅ Поездка отменена", keyboard=main_menu_keyboard())
+
+    logger.info(
+        f"Trip {trip.id} cancelled by driver (penalty={penalty_applied})"
+    )
+
 
 async def incoming_requests_handler(message: Message):
     """Показывает входящие заявки на бронирование"""
