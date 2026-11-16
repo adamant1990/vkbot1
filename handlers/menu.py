@@ -349,11 +349,10 @@ async def process_edit_phone(message: Message):
 # ============ Система рейтинга ============
 
 async def process_rating(message: Message):
-    """Сохраняет оценку только для того запроса, кнопка которого была нажата."""
+    """Сохраняет оценку только для конкретного запроса из payload кнопки."""
     import json
 
     user_vk_id = message.from_id
-    text = (message.text or "").strip()
     payload = getattr(message, "payload", None)
 
     if isinstance(payload, str):
@@ -362,27 +361,22 @@ async def process_rating(message: Message):
         except (TypeError, ValueError):
             payload = None
 
-    pending_id = None
-    rating_value = None
-    if isinstance(payload, dict):
-        try:
-            pending_id = int(payload.get("pending_rating_id"))
-            rating_value = int(payload.get("rating"))
-        except (TypeError, ValueError):
-            pending_id = None
-            rating_value = None
+    if not isinstance(payload, dict):
+        await message.answer(
+            "❌ Это старое сообщение с оценкой. "
+            "Найдите последнее сообщение бота и нажмите кнопку в нём."
+        )
+        return
 
-    # Совместимость с сообщениями без payload. При нескольких запросах
-    # не угадываем, какую поездку пользователь хотел оценить.
-    if rating_value is None:
-        try:
-            rating_value = int(text[0])
-        except (ValueError, IndexError):
-            await message.answer("❌ Пожалуйста, выберите оценку от 1 до 5")
-            return
+    try:
+        pending_id = int(payload.get("pending_rating_id"))
+        rating_value = int(payload.get("rating"))
+    except (TypeError, ValueError):
+        await message.answer("❌ Не удалось определить запрос оценки. Используйте новое сообщение.")
+        return
 
-    if rating_value < 1 or rating_value > 5:
-        await message.answer("❌ Оценка должна быть от 1 до 5")
+    if pending_id <= 0 or rating_value < 1 or rating_value > 5:
+        await message.answer("❌ Некорректная оценка")
         return
 
     async for session in get_session():
@@ -391,36 +385,16 @@ async def process_rating(message: Message):
             await message.answer("❌ Пользователь не найден")
             return
 
-        if pending_id is not None:
-            result = await session.execute(
-                select(PendingRating)
-                .where(
-                    PendingRating.id == pending_id,
-                    PendingRating.from_user_id == from_user.id,
-                    PendingRating.sent_at.isnot(None),
-                )
-                .with_for_update()
+        result = await session.execute(
+            select(PendingRating)
+            .where(
+                PendingRating.id == pending_id,
+                PendingRating.from_user_id == from_user.id,
+                PendingRating.sent_at.isnot(None),
             )
-            pending = result.scalar_one_or_none()
-        else:
-            result = await session.execute(
-                select(PendingRating)
-                .where(
-                    PendingRating.from_user_id == from_user.id,
-                    PendingRating.sent_at.isnot(None),
-                )
-                .order_by(PendingRating.id)
-                .limit(2)
-                .with_for_update()
-            )
-            pending_rows = result.scalars().all()
-            if len(pending_rows) > 1:
-                await message.answer(
-                    "❌ У вас несколько ожидающих оценок. "
-                    "Пожалуйста, нажмите кнопку в актуальном сообщении с оценкой."
-                )
-                return
-            pending = pending_rows[0] if pending_rows else None
+            .with_for_update()
+        )
+        pending = result.scalar_one_or_none()
 
         if not pending:
             await message.answer(
