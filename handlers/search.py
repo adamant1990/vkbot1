@@ -120,7 +120,7 @@ async def search_trip_handler(message: Message):
         
         if user.banned_until and user.banned_until > datetime.now(timezone.utc):
             await message.answer(
-                f"🚫 Вы временно заблокированы до {user.banned_until.strftime('%d.%m.%Y %H:%M')} (МСК) "
+                f"🚫 Вы временно заблокированы до {user.banned_until.strftime('%d.%m.%Y %H:%M')} (UTC) "
                 f"из-за отмены бронирования менее чем за 2 часа."
             )
             return
