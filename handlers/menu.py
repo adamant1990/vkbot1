@@ -348,28 +348,6 @@ async def process_edit_phone(message: Message):
 
 # ============ Система рейтинга ============
 
-async def send_rating_request(user_id: int, trip_id: int, target_id: int, target_name: str):
-    """Отправляет запрос на оценку пользователю"""
-    api = API(token=settings.VK_GROUP_TOKEN)
-    
-    keyboard = Keyboard(inline=True)
-    keyboard.add(Text("1⭐"), KeyboardButtonColor.SECONDARY)
-    keyboard.add(Text("2⭐"), KeyboardButtonColor.SECONDARY)
-    keyboard.add(Text("3⭐"), KeyboardButtonColor.SECONDARY)
-    keyboard.add(Text("4⭐"), KeyboardButtonColor.SECONDARY)
-    keyboard.add(Text("5⭐"), KeyboardButtonColor.SECONDARY)
-    
-    try:
-        await api.messages.send(
-            peer_ids=str(user_id),
-            message=f"⭐ Оцените поездку с {target_name} (от 1 до 5):",
-            keyboard=keyboard.get_json(),
-            random_id=0
-        )
-        logger.info(f"Rating request sent to {user_id}")
-    except Exception as e:
-        logger.error(f"Failed to send rating request to {user_id}: {e}")
-
 async def process_rating(message: Message):
     """Сохраняет оценку только для того запроса, кнопка которого была нажата."""
     import json
