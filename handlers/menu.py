@@ -59,6 +59,10 @@ async def start_handler(message: Message):
             )
             await ctx.set(f"reg_state_{user_id}", RegistrationState.WAITING_NAME)
         else:
+            if user.is_banned:
+                await message.answer("❌ Ваш аккаунт заблокирован")
+                return
+
             # Проверка временной блокировки
             if user.banned_until and user.banned_until > datetime.now(timezone.utc):
                 await message.answer(
