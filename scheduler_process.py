@@ -38,7 +38,7 @@ async def _deliver_pending_rating_requests(api: API) -> None:
             select(PendingRating, User.vk_id)
             .join(User, User.id == PendingRating.from_user_id)
             .where(PendingRating.sent_at.is_(None))
-            .order_by(PendingRating.id)
+            .order_by(PendingRating.attempts, PendingRating.id)
             .limit(100)
         )
         pending_rows = [
