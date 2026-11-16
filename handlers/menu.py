@@ -2,7 +2,7 @@ from vkbottle import BaseStateGroup
 from vkbottle.bot import Message
 from keyboards import main_menu_keyboard
 from db import get_session
-from models import User, Rating, PendingRating
+from models import User, Rating, PendingRating, Trip, Booking, BookingStatus
 from loguru import logger
 from vkbottle import Keyboard, Text, KeyboardButtonColor, API
 from utils.db_utils import get_user_by_vk_id, update_user_rating
@@ -370,11 +370,42 @@ async def send_rating_request(user_id: int, trip_id: int, target_id: int, target
     except Exception as e:
         logger.error(f"Failed to send rating request to {user_id}: {e}")
 
+async def send_next_rating_request(session, user_vk_id: int):
+    """Отправляет только самый ранний ожидающий запрос оценки этого пользователя."""
+    result = await session.execute(
+        select(PendingRating)
+        .where(PendingRating.from_user_vk_id == user_vk_id)
+        .order_by(PendingRating.id.asc())
+        .limit(1)
+    )
+    pending = result.scalar_one_or_none()
+    if not pending:
+        return
+
+    try:
+        api = API(token=settings.VK_GROUP_TOKEN)
+        keyboard = Keyboard(inline=True)
+        for value in range(1, 6):
+            keyboard.add(Text(f"{value}⭐"), KeyboardButtonColor.SECONDARY)
+
+        await api.messages.send(
+            peer_ids=str(user_vk_id),
+            message=(
+                f"⭐ Оцените поездку с {pending.target_name or 'участником поездки'} "
+                "(от 1 до 5). Если у вас несколько оценок, запросы придут по очереди."
+            ),
+            keyboard=keyboard.get_json(),
+            random_id=0
+        )
+    except Exception as e:
+        logger.error(f"Failed to send next rating request to {user_vk_id}: {e}")
+
+
 async def process_rating(message: Message):
-    """Обрабатывает оценку от пользователя (читает контекст из БД)"""
+    """Сохраняет оценку для конкретной брони, а не путает ID поездки и брони."""
     user_vk_id = message.from_id
     text = message.text.strip()
-    
+
     try:
         rating_value = int(text[0])
         if rating_value < 1 or rating_value > 5:
@@ -383,55 +414,114 @@ async def process_rating(message: Message):
     except (ValueError, IndexError):
         await message.answer("❌ Пожалуйста, выберите оценку от 1 до 5")
         return
-    
+
     async for session in get_session():
-        result = await session.execute(
-            select(PendingRating).where(PendingRating.from_user_vk_id == user_vk_id).limit(1)
+        pending_result = await session.execute(
+            select(PendingRating)
+            .where(PendingRating.from_user_vk_id == user_vk_id)
+            .order_by(PendingRating.id.asc())
+            .limit(1)
+            .with_for_update()
         )
-        pending = result.scalar()
-        
+        pending = pending_result.scalar_one_or_none()
+
         if not pending:
-            await message.answer("❌ Данные об оценке устарели")
+            await message.answer("❌ У вас нет ожидающих оценок")
             return
-        
-        trip_id = pending.trip_id
-        target_id = pending.to_user_id
-        
+
         from_user = await get_user_by_vk_id(session, user_vk_id)
         if not from_user:
-            await message.answer("❌ Пользователь не найден")
             await session.delete(pending)
             await session.commit()
+            await message.answer("❌ Пользователь не найден")
             return
-        
+
+        trip = await session.get(Trip, pending.trip_id)
+        booking = None
+
+        if trip:
+            if trip.driver_id == from_user.id:
+                booking_result = await session.execute(
+                    select(Booking).where(
+                        and_(
+                            Booking.trip_id == trip.id,
+                            Booking.passenger_id == pending.to_user_id,
+                            Booking.status == BookingStatus.accepted
+                        )
+                    ).order_by(Booking.id.asc()).limit(1)
+                )
+            elif pending.to_user_id == trip.driver_id:
+                booking_result = await session.execute(
+                    select(Booking).where(
+                        and_(
+                            Booking.trip_id == trip.id,
+                            Booking.passenger_id == from_user.id,
+                            Booking.status == BookingStatus.accepted
+                        )
+                    ).order_by(Booking.id.asc()).limit(1)
+                )
+            else:
+                booking_result = None
+
+            if booking_result is not None:
+                booking = booking_result.scalar_one_or_none()
+
+        # Совместимость с уже созданными старыми PendingRating, где в trip_id
+        # ошибочно записывался booking.id вместо trip.id.
+        if booking is None:
+            legacy_booking = await session.get(Booking, pending.trip_id)
+            if legacy_booking:
+                legacy_trip = await session.get(Trip, legacy_booking.trip_id)
+                if legacy_trip and (
+                    (legacy_trip.driver_id == from_user.id and
+                     legacy_booking.passenger_id == pending.to_user_id) or
+                    (legacy_trip.driver_id == pending.to_user_id and
+                     legacy_booking.passenger_id == from_user.id)
+                ):
+                    booking = legacy_booking
+
+        if booking is None:
+            await session.delete(pending)
+            await session.commit()
+            await message.answer(
+                "❌ Не удалось связать старый запрос оценки с бронированием. "
+                "Этот запрос удалён, остальные оценки сохранены."
+            )
+            await send_next_rating_request(session, user_vk_id)
+            return
+
         existing = await session.execute(
-            select(Rating).where(
+            select(Rating.id).where(
                 and_(
-                    Rating.booking_id == trip_id,
+                    Rating.booking_id == booking.id,
                     Rating.from_user_id == from_user.id
                 )
-            )
+            ).limit(1)
         )
-        if existing.scalar():
-            await message.answer("❌ Вы уже оценили эту поездку")
+        if existing.scalar_one_or_none() is not None:
             await session.delete(pending)
             await session.commit()
+            await message.answer("❌ Вы уже оценили эту поездку")
+            await send_next_rating_request(session, user_vk_id)
             return
-        
+
         rating = Rating(
-            booking_id=trip_id,
+            booking_id=booking.id,
             from_user_id=from_user.id,
-            to_user_id=target_id,
+            to_user_id=pending.to_user_id,
             value=rating_value
         )
+        target_id = pending.to_user_id
         session.add(rating)
         await session.delete(pending)
-        await session.commit()
-        
         await update_user_rating(session, target_id)
-        
+        await session.commit()
+
         await message.answer(
             f"✅ Спасибо за оценку! Вы поставили {rating_value}⭐",
             keyboard=main_menu_keyboard()
         )
-        logger.info(f"Rating {rating_value} from {from_user.id} to {target_id}")
+        logger.info(
+            f"Rating {rating_value} from {from_user.id} to {target_id} for booking {booking.id}"
+        )
+        await send_next_rating_request(session, user_vk_id)
