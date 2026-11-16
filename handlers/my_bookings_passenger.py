@@ -1,11 +1,11 @@
 from vkbottle.bot import Message
 from keyboards import main_menu_keyboard
 from db import get_session
-from models import Trip, User, Booking, BookingStatus, Subscription, Rating
+from models import Trip, TripStatus, User, Booking, BookingStatus, Subscription
 from sqlalchemy import select, and_
 from datetime import datetime, timezone, timedelta
 from vkbottle import Keyboard, Text, KeyboardButtonColor
-from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_trip_by_id, get_booking_by_id, apply_rating_penalty
+from utils.db_utils import get_user_by_vk_id, get_user_by_id, get_trip_by_id, apply_rating_penalty
 from loguru import logger
 from storage import ctx
 
